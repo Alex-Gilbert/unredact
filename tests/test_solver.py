@@ -159,3 +159,25 @@ class TestSolveGapParallel:
             on_progress=lambda checked, found: progress.append((checked, found)),
         )
         assert len(progress) > 0
+
+
+class TestRoundTrip:
+    def test_known_word_found_with_real_font(self):
+        """Measure a word, then solve for it — the word should appear in results."""
+        font = _get_test_font()
+        word = "Smith"
+        # Measure "Smith" when preceded by "o" (left context)
+        target = font.getlength("o" + word) - font.getlength("o")
+
+        results = solve_gap(
+            font=font,
+            charset="abcdefghijklmnopqrstuvwxyzST",  # include needed uppercase
+            target_width=target,
+            tolerance=0.5,
+            min_length=5,
+            max_length=5,
+            left_context="o",
+            right_context="",
+        )
+        texts = [r.text for r in results]
+        assert "Smith" in texts
