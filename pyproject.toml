@@ -21,6 +21,7 @@ dev = [
     "httpx>=0.28",
     "anyio>=4.0",
     "pytest-anyio>=0.0.0",
+    "scipy>=1.14",
 ]
 
 [build-system]

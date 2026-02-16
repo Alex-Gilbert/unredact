@@ -100,11 +100,13 @@ def detect_font(
 ) -> FontMatch:
     """Detect the best matching font and size for OCR'd text.
 
-    Tries all candidate fonts at all sizes in SIZE_RANGE and returns
-    the combination with the lowest mean word-width error.
+    Two-pass search:
+    1. Coarse pass: all candidate fonts at sizes 20-78 in steps of 2
+    2. Fine pass: best font at sizes ±3 around the coarse best in steps of 1
     """
     best: FontMatch | None = None
 
+    # Coarse pass
     for font_name in CANDIDATE_FONTS:
         font_path = _find_font_path(font_name)
         if font_path is None:
@@ -128,5 +130,23 @@ def detect_font(
 
     if best is None:
         raise RuntimeError("No matching font found. Check system fonts.")
+
+    # Fine pass: search ±3 around the best size in steps of 1
+    fine_range = range(max(8, best.font_size - 3), best.font_size + 4)
+    for size in fine_range:
+        if size == best.font_size:
+            continue
+        try:
+            font = ImageFont.truetype(str(best.font_path), size)
+        except Exception:
+            continue
+        score = _score_font(font, lines)
+        if score < best.score:
+            best = FontMatch(
+                font_name=best.font_name,
+                font_path=best.font_path,
+                font_size=size,
+                score=score,
+            )
 
     return best
