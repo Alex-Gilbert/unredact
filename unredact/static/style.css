@@ -4,9 +4,10 @@ body {
   font-family: system-ui, -apple-system, sans-serif;
   background: #1a1a2e;
   color: #e0e0e0;
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 header {
@@ -80,6 +81,20 @@ main {
   cursor: not-allowed;
 }
 
+.controls-sep {
+  width: 1px;
+  height: 1.2rem;
+  background: #0f3460;
+  flex-shrink: 0;
+}
+
+#zoom-level {
+  font-size: 0.8rem;
+  color: #00d474;
+  min-width: 3rem;
+  text-align: center;
+}
+
 /* Workspace: split panel */
 #workspace {
   display: flex;
@@ -88,20 +103,16 @@ main {
   overflow: hidden;
 }
 
-/* Left panel */
+/* Left panel — scrollable line list only */
 #left-panel {
   width: 350px;
   flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
   background: #16213e;
   border-radius: 8px;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 #line-list {
-  flex: 1;
-  overflow-y: auto;
   padding: 0.5rem 0;
 }
 
@@ -136,14 +147,21 @@ main {
   margin-top: 0.15rem;
 }
 
-/* Font controls */
+/* Font controls — floating toolbar at top of right panel */
 #font-controls {
-  flex-shrink: 0;
-  padding: 0.75rem;
-  border-top: 1px solid #0f3460;
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(22, 33, 62, 0.92);
+  backdrop-filter: blur(6px);
+  border-radius: 6px;
+  border: 1px solid #0f3460;
 }
 
 #font-controls label,
@@ -153,6 +171,7 @@ main {
   gap: 0.5rem;
   font-size: 0.8rem;
   color: #aaa;
+  white-space: nowrap;
 }
 
 #font-select {
@@ -191,23 +210,60 @@ main {
   text-align: right;
 }
 
+/* Position controls */
+.pos-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+.dpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.dpad-mid {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.pos-display {
+  color: #00d474;
+  font-size: 0.7rem;
+  min-width: 3.5rem;
+  text-align: center;
+}
+
 /* Right panel */
 #right-panel {
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
   background: #111;
   border-radius: 8px;
+  cursor: grab;
+  position: relative;
+}
+
+#right-panel.panning {
+  cursor: grabbing;
+  user-select: none;
 }
 
 #doc-container {
-  position: relative;
-  display: inline-block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 #doc-image {
   display: block;
-  max-width: 100%;
-  height: auto;
 }
 
 #overlay-canvas {
@@ -217,9 +273,192 @@ main {
   pointer-events: none;
 }
 
+/* Text edit bar — floating at bottom of right panel */
+#text-edit-bar {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(22, 33, 62, 0.92);
+  backdrop-filter: blur(6px);
+  border-radius: 6px;
+  border: 1px solid #0f3460;
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+#segment-inputs {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+}
+
+.seg-input {
+  flex: 1;
+  min-width: 3rem;
+  background: #0a1628;
+  color: #e0e0e0;
+  border: 1px solid #1a3a6e;
+  border-radius: 4px;
+  padding: 0.3rem 0.4rem;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.seg-input:focus {
+  outline: none;
+  border-color: #00d474;
+}
+
+.seg-input.active-segment {
+  border-color: #00d474;
+  box-shadow: 0 0 0 1px rgba(0, 212, 116, 0.3);
+}
+
+.redaction-marker {
+  flex-shrink: 0;
+  padding: 0.25rem 0.4rem;
+  background: #d32f2f;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: 3px;
+  cursor: default;
+  user-select: none;
+  letter-spacing: 0.05em;
+}
+
+.seg-hint {
+  font-size: 0.6rem;
+  color: #666;
+  white-space: nowrap;
+  padding: 0 0.2rem;
+}
+
 .loading {
   color: #00d474;
   text-align: center;
   padding: 2rem;
   font-size: 1.2rem;
+}
+
+/* Solve panel */
+#solve-panel {
+  position: absolute;
+  top: 80px;
+  right: 12px;
+  width: 300px;
+  max-height: calc(100% - 100px);
+  background: rgba(20, 20, 40, 0.95);
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 12px;
+  z-index: 30;
+  overflow-y: auto;
+  backdrop-filter: blur(10px);
+}
+
+.solve-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.solve-title {
+  font-weight: bold;
+  color: #00d474;
+}
+
+.solve-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.solve-controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+.solve-controls select,
+.solve-controls input {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  color: #eee;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.solve-num {
+  width: 50px;
+}
+
+.solve-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.solve-btn {
+  background: #00d474;
+  color: #000;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 16px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.solve-btn:hover {
+  background: #00ff8a;
+}
+
+#solve-status {
+  font-size: 0.75rem;
+  color: #aaa;
+}
+
+#solve-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.solve-result {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: rgba(0, 212, 116, 0.1);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.solve-result:hover {
+  border-color: #00d474;
+  background: rgba(0, 212, 116, 0.2);
+}
+
+.solve-result .result-text {
+  color: #00d474;
+}
+
+.solve-result .result-error {
+  color: #888;
+  font-size: 0.75rem;
 }

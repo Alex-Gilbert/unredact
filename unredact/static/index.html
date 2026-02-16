@@ -25,16 +25,25 @@
         <button id="prev-page" disabled>&lt; Prev</button>
         <span id="page-info">Page 1 / 1</span>
         <button id="next-page" disabled>Next &gt;</button>
+        <span class="controls-sep"></span>
+        <button id="zoom-out">-</button>
+        <span id="zoom-level">100%</span>
+        <button id="zoom-in">+</button>
+        <button id="zoom-fit">Fit</button>
       </div>
 
       <div id="workspace">
         <div id="left-panel">
           <div id="line-list"></div>
+        </div>
+
+        <div id="right-panel">
           <div id="font-controls" hidden>
             <label>
               Font
               <select id="font-select"></select>
             </label>
+            <span class="controls-sep"></span>
             <div class="size-control">
               <span>Size</span>
               <button id="size-down" class="size-btn">-</button>
@@ -42,10 +51,70 @@
               <button id="size-up" class="size-btn">+</button>
               <span id="size-value">32</span>px
             </div>
+            <span class="controls-sep"></span>
+            <div class="pos-control">
+              <span>Pos</span>
+              <div class="dpad">
+                <button id="pos-up" class="size-btn dpad-up">&#9650;</button>
+                <div class="dpad-mid">
+                  <button id="pos-left" class="size-btn">&#9664;</button>
+                  <span id="pos-display" class="pos-display">0, 0</span>
+                  <button id="pos-right" class="size-btn">&#9654;</button>
+                </div>
+                <button id="pos-down" class="size-btn dpad-down">&#9660;</button>
+              </div>
+              <button id="pos-reset" class="size-btn" style="font-size:0.65rem">Reset</button>
+            </div>
           </div>
-        </div>
-
-        <div id="right-panel">
+          <div id="text-edit-bar" hidden>
+            <div id="segment-inputs"></div>
+            <button id="text-reset" class="size-btn" title="Reset all">Reset</button>
+            <button id="solve-btn" class="size-btn" title="Solve redaction gap" hidden>Solve</button>
+          </div>
+          <div id="solve-panel" hidden>
+            <div class="solve-header">
+              <span class="solve-title">Solve Redaction</span>
+              <button id="solve-close" class="size-btn">X</button>
+            </div>
+            <div class="solve-controls">
+              <label>
+                Charset
+                <select id="solve-charset">
+                  <option value="lowercase">lowercase</option>
+                  <option value="uppercase">UPPERCASE</option>
+                  <option value="alpha">Mixed Case</option>
+                  <option value="alphanumeric">Alphanumeric</option>
+                </select>
+              </label>
+              <label>
+                Min length
+                <input type="number" id="solve-min-len" value="3" min="1" max="30" class="solve-num">
+              </label>
+              <label>
+                Max length
+                <input type="number" id="solve-max-len" value="8" min="1" max="30" class="solve-num">
+              </label>
+              <label>
+                Tolerance
+                <input type="range" id="solve-tolerance" min="0" max="5" step="0.5" value="0">
+                <span id="solve-tol-value">0</span>px
+              </label>
+              <label>
+                Mode
+                <select id="solve-mode">
+                  <option value="enumerate">Enumerate</option>
+                  <option value="dictionary">Dictionary</option>
+                  <option value="both">Both</option>
+                </select>
+              </label>
+            </div>
+            <div class="solve-actions">
+              <button id="solve-start" class="solve-btn">Solve</button>
+              <button id="solve-stop" class="solve-btn" hidden>Stop</button>
+              <span id="solve-status"></span>
+            </div>
+            <div id="solve-results"></div>
+          </div>
           <div id="doc-container">
             <img id="doc-image" alt="Document page">
             <canvas id="overlay-canvas"></canvas>
