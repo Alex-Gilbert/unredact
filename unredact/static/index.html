@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unredact</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>UNREDACT</h1>
+    <p class="subtitle">Epstein Files Redaction Analysis</p>
+  </header>
+
+  <main>
+    <section id="upload-section">
+      <div id="drop-zone">
+        <p>Drop a PDF here or click to upload</p>
+        <input type="file" id="file-input" accept=".pdf" hidden>
+      </div>
+    </section>
+
+    <section id="viewer-section" hidden>
+      <div id="controls">
+        <button id="prev-page" disabled>&lt; Prev</button>
+        <span id="page-info">Page 1 / 1</span>
+        <button id="next-page" disabled>Next &gt;</button>
+        <label id="overlay-toggle">
+          <input type="checkbox" id="show-overlay" checked>
+          Show overlay
+        </label>
+        <span id="font-info"></span>
+      </div>
+      <div id="doc-container">
+        <img id="doc-image" alt="Document page">
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
