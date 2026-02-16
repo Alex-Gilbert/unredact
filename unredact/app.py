@@ -1,4 +1,5 @@
 import io
+import re
 import uuid
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,7 +11,7 @@ from PIL import Image
 
 from unredact.pipeline.rasterize import rasterize_pdf
 from unredact.pipeline.ocr import ocr_page
-from unredact.pipeline.font_detect import detect_fonts
+from unredact.pipeline.font_detect import detect_fonts, CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.overlay import render_overlay
 
 app = FastAPI(title="Unredact")
@@ -19,6 +20,22 @@ app = FastAPI(title="Unredact")
 _docs: dict[str, dict] = {}
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+def _make_font_id(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+# Build font lookup at module level
+_font_id_to_path: dict[str, Path] = {}
+_font_list: list[dict] = []
+
+for _name in CANDIDATE_FONTS:
+    _fid = _make_font_id(_name)
+    _path = _find_font_path(_name)
+    if _path:
+        _font_id_to_path[_fid] = _path
+    _font_list.append({"name": _name, "id": _fid, "available": _path is not None})
 
 
 @app.get("/")
@@ -91,6 +108,19 @@ async def get_page_overlay(doc_id: str, page: int):
     return Response(content=png, media_type="image/png")
 
 
+@app.get("/api/fonts")
+async def list_fonts():
+    return {"fonts": _font_list}
+
+
+@app.get("/api/font/{font_id}")
+async def get_font(font_id: str):
+    path = _font_id_to_path.get(font_id)
+    if not path:
+        return JSONResponse({"error": "font not found"}, status_code=404)
+    return Response(content=path.read_bytes(), media_type="font/ttf")
+
+
 @app.get("/api/doc/{doc_id}/page/{page}/data")
 async def get_page_data(doc_id: str, page: int):
     doc = _docs.get(doc_id)
@@ -111,6 +141,7 @@ async def get_page_data(doc_id: str, page: int):
             "chars": chars_json,
             "font": {
                 "name": fm.font_name,
+                "id": _make_font_id(fm.font_name),
                 "size": fm.font_size,
                 "score": fm.score,
             },
