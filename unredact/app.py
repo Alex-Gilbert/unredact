@@ -18,7 +18,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from unredact.pipeline.rasterize import rasterize_pdf
 from unredact.pipeline.detect_redactions import detect_redactions
-from unredact.pipeline.font_detect import CANDIDATE_FONTS, _find_font_path
+from unredact.pipeline.ocr import ocr_page
+from unredact.pipeline.font_detect import detect_font_for_line, CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.solver import build_constraint, SolveResult
 from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary
 from unredact.pipeline.word_filter import _get_emails
@@ -138,6 +139,84 @@ async def get_page_data(doc_id: str, page: int):
         for r in pd["redactions"]
     ]
     return {"redactions": redactions_json}
+
+
+class AnalyzeRequest(BaseModel):
+    doc_id: str
+    page: int
+    redaction: dict  # {x, y, w, h}
+
+
+@app.post("/api/redaction/analyze")
+async def analyze_redaction(req: AnalyzeRequest):
+    doc = _docs.get(req.doc_id)
+    if not doc or req.page not in doc["pages"]:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    page_img = doc["pages"][req.page]["original"]
+    rx, ry, rw, rh = req.redaction["x"], req.redaction["y"], req.redaction["w"], req.redaction["h"]
+
+    # Expand vertically to capture the full line, horizontally to page edges
+    pad_y = rh  # one redaction-height of vertical padding
+    crop_y1 = max(0, ry - pad_y)
+    crop_y2 = min(page_img.height, ry + rh + pad_y)
+    line_crop = page_img.crop((0, crop_y1, page_img.width, crop_y2))
+
+    # OCR just this line crop
+    lines = ocr_page(line_crop)
+    if not lines:
+        return JSONResponse({"error": "no text detected near redaction"}, status_code=422)
+
+    # Find the line closest to the redaction's y-center
+    redaction_cy = (ry - crop_y1) + rh / 2
+    best_line = min(lines, key=lambda l: abs((l.y + l.h / 2) - redaction_cy))
+
+    # Detect font for this line
+    font_match = detect_font_for_line(best_line)
+
+    # Build segments: text before redaction, gap, text after redaction
+    segments = []
+    gap = {"x": rx, "w": rw}
+
+    left_chars = [c for c in best_line.chars if c.x + c.w <= rx]
+    right_chars = [c for c in best_line.chars if c.x >= rx + rw]
+
+    left_text = "".join(c.text for c in left_chars).rstrip()
+    right_text = "".join(c.text for c in right_chars).lstrip()
+
+    if left_text:
+        lx = left_chars[0].x
+        lw = (left_chars[-1].x + left_chars[-1].w) - lx
+        segments.append({"text": left_text, "x": lx, "w": lw})
+    if right_text:
+        rx2 = right_chars[0].x
+        rw2 = (right_chars[-1].x + right_chars[-1].w) - rx2
+        segments.append({"text": right_text, "x": rx2, "w": rw2})
+
+    # Adjust segment coordinates back to page-relative y
+    chars_json = [
+        {"text": c.text, "x": c.x, "y": c.y + crop_y1, "w": c.w, "h": c.h, "conf": c.conf}
+        for c in best_line.chars
+    ]
+
+    return {
+        "segments": segments,
+        "gap": gap,
+        "font": {
+            "name": font_match.font_name,
+            "id": _make_font_id(font_match.font_name),
+            "size": font_match.font_size,
+            "score": font_match.score,
+        },
+        "line": {
+            "x": best_line.x,
+            "y": best_line.y + crop_y1,
+            "w": best_line.w,
+            "h": best_line.h,
+            "text": best_line.text,
+        },
+        "chars": chars_json,
+    }
 
 
 # In-memory dictionary store
