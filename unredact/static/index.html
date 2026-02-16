@@ -34,48 +34,17 @@
 
       <div id="workspace">
         <div id="left-panel">
-          <div id="line-list"></div>
+          <div id="redaction-list"></div>
         </div>
 
         <div id="right-panel">
-          <div id="font-controls" hidden>
-            <label>
-              Font
-              <select id="font-select"></select>
-            </label>
-            <span class="controls-sep"></span>
-            <div class="size-control">
-              <span>Size</span>
-              <button id="size-down" class="size-btn">-</button>
-              <input type="range" id="size-slider" min="8" max="120" step="1">
-              <button id="size-up" class="size-btn">+</button>
-              <span id="size-value">32</span>px
+          <div id="popover" hidden>
+            <div class="popover-header">
+              <span class="popover-title">Analyze Redaction</span>
+              <button id="popover-close" class="popover-close-btn">X</button>
             </div>
-            <span class="controls-sep"></span>
-            <div class="pos-control">
-              <span>Pos</span>
-              <div class="dpad">
-                <button id="pos-up" class="size-btn dpad-up">&#9650;</button>
-                <div class="dpad-mid">
-                  <button id="pos-left" class="size-btn">&#9664;</button>
-                  <span id="pos-display" class="pos-display">0, 0</span>
-                  <button id="pos-right" class="size-btn">&#9654;</button>
-                </div>
-                <button id="pos-down" class="size-btn dpad-down">&#9660;</button>
-              </div>
-              <button id="pos-reset" class="size-btn" style="font-size:0.65rem">Reset</button>
-            </div>
-          </div>
-          <div id="text-edit-bar" hidden>
-            <div id="segment-inputs"></div>
-            <button id="text-reset" class="size-btn" title="Reset all">Reset</button>
-            <button id="solve-btn" class="size-btn" title="Solve redaction gap" hidden>Solve</button>
-          </div>
-          <div id="solve-panel" hidden>
-            <div class="solve-header">
-              <span class="solve-title">Solve Redaction</span>
-              <button id="solve-close" class="size-btn">X</button>
-            </div>
+            <div id="popover-context" class="popover-context"></div>
+            <div id="popover-font-info" class="popover-font-info"></div>
             <div class="solve-controls">
               <label>
                 Charset
