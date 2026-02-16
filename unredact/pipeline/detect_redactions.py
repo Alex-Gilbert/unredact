@@ -89,7 +89,7 @@ def spot_redaction(image: Image.Image, click_x: int, click_y: int) -> Redaction 
     gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
     _, binary = cv2.threshold(gray, 40, 255, cv2.THRESH_BINARY_INV)
 
-    num_labels, labels = cv2.connectedComponents(binary)
+    _, labels = cv2.connectedComponents(binary)
 
     if click_y < 0 or click_y >= labels.shape[0] or click_x < 0 or click_x >= labels.shape[1]:
         return None
