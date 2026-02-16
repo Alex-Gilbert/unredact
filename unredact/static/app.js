@@ -882,7 +882,7 @@ function matchAssociates(text) {
       category: person?.category || "other",
       tier: m.tier,
       matchType: m.match_type,
-      score: m.tier * weight,
+      score: (4 - m.tier) * weight,
     };
   }).sort((a, b) => b.score - a.score);
 }

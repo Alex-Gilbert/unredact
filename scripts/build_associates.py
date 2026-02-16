@@ -9,6 +9,7 @@ present, then processes them into unredact/data/associates.json.
 
 import argparse
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -166,9 +167,16 @@ def process_associates(
     names: dict[str, list] = {}
     persons: dict[str, dict] = {}
 
-    for i, person in enumerate(registry):
-        person_id = f"p{i:04d}"
+    pid_counter = 0
+    for person in registry:
         canonical_name = person["name"]
+
+        # Skip redaction placeholders and parsing artifacts from upstream data
+        if re.search(r'[()]', canonical_name) or len(canonical_name) < 3:
+            continue
+
+        person_id = f"p{pid_counter:04d}"
+        pid_counter += 1
         tier = tiers.get(canonical_name, 3)
         category = person.get("category", "other")
 
