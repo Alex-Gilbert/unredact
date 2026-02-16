@@ -873,16 +873,26 @@ function matchAssociates(text) {
   const matches = state.associates.names[key];
   if (!matches) return [];
 
+  const prefix = solveFilterPrefix.value.toLowerCase().trim();
+  const suffix = solveFilterSuffix.value.toLowerCase().trim();
+
   return matches.map(m => {
     const person = state.associates.persons[m.person_id];
     const weight = MATCH_TYPE_WEIGHTS[m.match_type] || 1;
+    let score = (4 - m.tier) * weight;
+
+    // Boost if the associate's name aligns with user's prefix/suffix hints
+    const pname = (person?.name || "").toLowerCase();
+    if (prefix && pname.startsWith(prefix)) score += 2;
+    if (suffix && pname.endsWith(suffix)) score += 2;
+
     return {
       personId: m.person_id,
       personName: person?.name || "Unknown",
       category: person?.category || "other",
       tier: m.tier,
       matchType: m.match_type,
-      score: (4 - m.tier) * weight,
+      score,
     };
   }).sort((a, b) => b.score - a.score);
 }
@@ -1005,7 +1015,10 @@ function handleSolveEvent(data, gapIdx) {
 
     const div = document.createElement("div");
     div.className = "solve-result";
-    if (topMatch) div.dataset.assocScore = topMatch.score;
+    if (topMatch) {
+      div.dataset.assocTier = topMatch.tier;
+      div.dataset.assocScore = topMatch.score;
+    }
 
     let badgeHtml = "";
     if (topMatch) {
@@ -1029,12 +1042,14 @@ function handleSolveEvent(data, gapIdx) {
       solveAccept.hidden = false;
     });
 
-    // Insert sorted: associates first, by score descending
+    // Insert sorted: by tier first (T1 > T2 > T3 > none), then by score within tier
     if (topMatch) {
       let inserted = false;
       for (const existing of solveResults.children) {
-        const existingScore = parseFloat(existing.dataset.assocScore || "0");
-        if (topMatch.score > existingScore) {
+        const exTier = parseInt(existing.dataset.assocTier || "99");
+        const exScore = parseFloat(existing.dataset.assocScore || "0");
+        // Lower tier number = higher priority; within same tier, higher score wins
+        if (topMatch.tier < exTier || (topMatch.tier === exTier && topMatch.score > exScore)) {
           solveResults.insertBefore(div, existing);
           inserted = true;
           break;
