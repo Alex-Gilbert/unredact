@@ -67,6 +67,39 @@ async def test_get_page_data_returns_redactions(pdf_bytes: bytes):
 
 
 @pytest.mark.anyio
+async def test_redaction_analyze(pdf_bytes: bytes):
+    """POST /api/redaction/analyze should OCR the line around a redaction."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/upload",
+            files={"file": ("test.pdf", pdf_bytes, "application/pdf")},
+        )
+        doc_id = resp.json()["doc_id"]
+
+        resp = await client.get(f"/api/doc/{doc_id}/page/1/data")
+        redactions = resp.json()["redactions"]
+        if not redactions:
+            pytest.skip("No redactions detected in test PDF")
+
+        r = redactions[0]
+
+        resp = await client.post("/api/redaction/analyze", json={
+            "doc_id": doc_id,
+            "page": 1,
+            "redaction": {"x": r["x"], "y": r["y"], "w": r["w"], "h": r["h"]},
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "segments" in data
+        assert "gap" in data
+        assert "font" in data
+        assert data["gap"]["w"] > 0
+        assert data["font"]["name"]
+        assert data["font"]["size"] > 0
+
+
+@pytest.mark.anyio
 async def test_list_fonts():
     """GET /api/fonts should return list of candidate fonts."""
     transport = ASGITransport(app=app)
