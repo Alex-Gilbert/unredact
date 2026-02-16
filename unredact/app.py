@@ -22,6 +22,7 @@ from unredact.pipeline.font_detect import detect_fonts, CANDIDATE_FONTS, _find_f
 from unredact.pipeline.overlay import render_overlay
 from unredact.pipeline.solver import build_constraint, SolveResult
 from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary
+from unredact.pipeline.word_filter import _get_emails
 from unredact.pipeline.width_table import build_width_table, CHARSETS
 
 app = FastAPI(title="Unredact")
@@ -291,6 +292,25 @@ async def solve(req: SolveRequest):
                             "width_px": round(r.width, 2),
                             "error_px": round(r.error, 2),
                             "source": "dictionary",
+                        })
+
+            if req.mode == "emails":
+                entries = _get_emails()
+                if entries:
+                    email_results = solve_dictionary(
+                        font, entries, req.gap_width_px, req.tolerance_px,
+                        req.left_context, req.right_context,
+                    )
+                    for r in email_results:
+                        if _active_solves.get(solve_id):
+                            break
+                        found_texts.add(r.text)
+                        yield json.dumps({
+                            "status": "match",
+                            "text": r.text,
+                            "width_px": round(r.width, 2),
+                            "error_px": round(r.error, 2),
+                            "source": "emails",
                         })
 
             if req.mode in ("enumerate", "both") and not _active_solves.get(solve_id):
