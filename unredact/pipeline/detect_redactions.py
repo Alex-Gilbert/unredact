@@ -72,3 +72,36 @@ def detect_redactions(image: Image.Image) -> list[Redaction]:
     # Sort top-to-bottom, then left-to-right
     redactions.sort(key=lambda r: (r.y, r.x))
     return redactions
+
+
+def spot_redaction(image: Image.Image, click_x: int, click_y: int) -> Redaction | None:
+    """Find a redaction box at a specific click point using connected components.
+
+    Args:
+        image: PIL Image of a document page.
+        click_x: X coordinate of the click in page-image pixels.
+        click_y: Y coordinate of the click in page-image pixels.
+
+    Returns:
+        Redaction object if a dark region is found, None otherwise.
+    """
+    arr = np.array(image.convert("RGB"))
+    gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+    _, binary = cv2.threshold(gray, 40, 255, cv2.THRESH_BINARY_INV)
+
+    num_labels, labels = cv2.connectedComponents(binary)
+
+    if click_y < 0 or click_y >= labels.shape[0] or click_x < 0 or click_x >= labels.shape[1]:
+        return None
+
+    label = int(labels[click_y, click_x])
+    if label == 0:
+        return None
+
+    coords = cv2.findNonZero((labels == label).astype(np.uint8))
+    x, y, w, h = cv2.boundingRect(coords)
+
+    if w * h < 100:
+        return None
+
+    return Redaction(id=uuid.uuid4().hex[:8], x=int(x), y=int(y), w=int(w), h=int(h))
