@@ -4,13 +4,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from fastapi import FastAPI, UploadFile
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import RedirectResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 from unredact.pipeline.rasterize import rasterize_pdf
 from unredact.pipeline.ocr import ocr_page
-from unredact.pipeline.font_detect import detect_font
+from unredact.pipeline.font_detect import detect_fonts
 from unredact.pipeline.overlay import render_overlay
 
 app = FastAPI(title="Unredact")
@@ -19,6 +19,13 @@ app = FastAPI(title="Unredact")
 _docs: dict[str, dict] = {}
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.get("/")
+async def root():
+    return RedirectResponse("/static/index.html")
+
+
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
@@ -45,13 +52,13 @@ async def upload_pdf(file: UploadFile):
     page_data = {}
     for i, page_img in enumerate(pages, start=1):
         lines = ocr_page(page_img)
-        font_match = detect_font(lines, page_img)
-        overlay_img = render_overlay(page_img, lines, font_match)
+        font_matches = detect_fonts(lines, page_img)
+        overlay_img = render_overlay(page_img, lines, font_matches)
         page_data[i] = {
             "original": page_img,
             "overlay": overlay_img,
             "lines": lines,
-            "font_match": font_match,
+            "font_matches": font_matches,
         }
 
     _docs[doc_id] = {
@@ -91,9 +98,9 @@ async def get_page_data(doc_id: str, page: int):
         return JSONResponse({"error": "not found"}, status_code=404)
 
     pd = doc["pages"][page]
-    fm = pd["font_match"]
+    font_matches = pd["font_matches"]
     lines_json = []
-    for line in pd["lines"]:
+    for line, fm in zip(pd["lines"], font_matches):
         chars_json = [
             {"text": c.text, "x": c.x, "y": c.y, "w": c.w, "h": c.h, "conf": c.conf}
             for c in line.chars
@@ -102,14 +109,11 @@ async def get_page_data(doc_id: str, page: int):
             "text": line.text,
             "x": line.x, "y": line.y, "w": line.w, "h": line.h,
             "chars": chars_json,
+            "font": {
+                "name": fm.font_name,
+                "size": fm.font_size,
+                "score": fm.score,
+            },
         })
 
-    return {
-        "font": {
-            "name": fm.font_name,
-            "size": fm.font_size,
-            "score": fm.score,
-            "path": str(fm.font_path),
-        },
-        "lines": lines_json,
-    }
+    return {"lines": lines_json}

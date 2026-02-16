@@ -73,7 +73,10 @@ async def test_get_page_data(pdf_bytes: bytes):
         resp = await client.get(f"/api/doc/{doc_id}/page/1/data")
         assert resp.status_code == 200
         data = resp.json()
-        assert "font" in data
         assert "lines" in data
-        assert data["font"]["name"]
-        assert data["font"]["size"] > 0
+        assert len(data["lines"]) > 0
+        # Each line should have its own font info
+        line = data["lines"][0]
+        assert "font" in line
+        assert line["font"]["name"]
+        assert line["font"]["size"] > 0

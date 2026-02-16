@@ -66,7 +66,17 @@ async function loadPage(page) {
   }
 
   const pd = state.pageData[page];
-  fontInfo.textContent = `${pd.font.name} ~${pd.font.size}px (score: ${pd.font.score.toFixed(1)})`;
+  // Summarize per-line fonts: count unique font+size combos
+  const fontCounts = {};
+  for (const line of pd.lines) {
+    const key = `${line.font.name} ${line.font.size}px`;
+    fontCounts[key] = (fontCounts[key] || 0) + 1;
+  }
+  const summary = Object.entries(fontCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${k} (${v} lines)`)
+    .join(", ");
+  fontInfo.textContent = summary;
 }
 
 function updateControls() {
