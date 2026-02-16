@@ -184,6 +184,15 @@ async def analyze_redaction(req: AnalyzeRequest):
     left_text = "".join(c.text for c in left_chars).rstrip()
     right_text = "".join(c.text for c in right_chars).lstrip()
 
+    # Compute initial offset guess: align end of left text with gap start
+    pil_font = font_match.to_pil_font()
+    if left_text:
+        left_rendered_width = pil_font.getlength(left_text)
+        offset_x = float(rx - left_rendered_width - best_line.x)
+    else:
+        offset_x = 0.0
+    offset_y = 0.0
+
     if left_text:
         lx = left_chars[0].x
         lw = (left_chars[-1].x + left_chars[-1].w) - lx
@@ -216,6 +225,8 @@ async def analyze_redaction(req: AnalyzeRequest):
             "text": best_line.text,
         },
         "chars": chars_json,
+        "offset_x": round(offset_x, 1),
+        "offset_y": round(offset_y, 1),
     }
 
 

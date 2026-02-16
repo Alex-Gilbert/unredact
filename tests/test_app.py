@@ -97,6 +97,10 @@ async def test_redaction_analyze(pdf_bytes: bytes):
         assert data["gap"]["w"] > 0
         assert data["font"]["name"]
         assert data["font"]["size"] > 0
+        assert "offset_x" in data
+        assert "offset_y" in data
+        assert isinstance(data["offset_x"], (int, float))
+        assert isinstance(data["offset_y"], (int, float))
 
 
 @pytest.mark.anyio
