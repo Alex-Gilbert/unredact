@@ -82,17 +82,12 @@
                 <select id="solve-charset">
                   <option value="lowercase">lowercase</option>
                   <option value="uppercase">UPPERCASE</option>
+                  <option value="capitalized">Capitalized</option>
+                  <option value="full_name_capitalized">Full Name</option>
+                  <option value="full_name_caps">FULL NAME</option>
                   <option value="alpha">Mixed Case</option>
                   <option value="alphanumeric">Alphanumeric</option>
                 </select>
-              </label>
-              <label>
-                Min length
-                <input type="number" id="solve-min-len" value="3" min="1" max="30" class="solve-num">
-              </label>
-              <label>
-                Max length
-                <input type="number" id="solve-max-len" value="8" min="1" max="30" class="solve-num">
               </label>
               <label>
                 Tolerance
@@ -105,12 +100,31 @@
                   <option value="enumerate">Enumerate</option>
                   <option value="dictionary">Dictionary</option>
                   <option value="both">Both</option>
+                  <option value="emails">Emails</option>
                 </select>
+              </label>
+              <label>
+                Filter
+                <select id="solve-filter">
+                  <option value="none">None</option>
+                  <option value="words">English words</option>
+                  <option value="names">Names</option>
+                  <option value="both">Words + Names</option>
+                </select>
+              </label>
+              <label>
+                Filter prefix
+                <input type="text" id="solve-filter-prefix" placeholder="e.g. j" spellcheck="false" autocomplete="off">
+              </label>
+              <label>
+                Filter suffix
+                <input type="text" id="solve-filter-suffix" placeholder="e.g. son" spellcheck="false" autocomplete="off">
               </label>
             </div>
             <div class="solve-actions">
               <button id="solve-start" class="solve-btn">Solve</button>
               <button id="solve-stop" class="solve-btn" hidden>Stop</button>
+              <button id="solve-accept" class="solve-btn accept" hidden>Accept</button>
               <span id="solve-status"></span>
             </div>
             <div id="solve-results"></div>
