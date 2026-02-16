@@ -1,4 +1,5 @@
-// DOM elements
+// ── DOM elements ──
+
 const dropZone = document.getElementById("drop-zone");
 const fileInput = document.getElementById("file-input");
 const uploadSection = document.getElementById("upload-section");
@@ -9,35 +10,17 @@ const ctx = canvas.getContext("2d");
 const pageInfo = document.getElementById("page-info");
 const prevBtn = document.getElementById("prev-page");
 const nextBtn = document.getElementById("next-page");
-const lineList = document.getElementById("line-list");
-const fontControls = document.getElementById("font-controls");
-const fontSelect = document.getElementById("font-select");
-const sizeSlider = document.getElementById("size-slider");
-const sizeValue = document.getElementById("size-value");
-const sizeDown = document.getElementById("size-down");
-const sizeUp = document.getElementById("size-up");
+const redactionList = document.getElementById("redaction-list");
 const zoomInBtn = document.getElementById("zoom-in");
 const zoomOutBtn = document.getElementById("zoom-out");
 const zoomFitBtn = document.getElementById("zoom-fit");
 const zoomLevel = document.getElementById("zoom-level");
 const rightPanel = document.getElementById("right-panel");
 const docContainer = document.getElementById("doc-container");
-const posUp = document.getElementById("pos-up");
-const posDown = document.getElementById("pos-down");
-const posLeft = document.getElementById("pos-left");
-const posRight = document.getElementById("pos-right");
-const posReset = document.getElementById("pos-reset");
-const posDisplay = document.getElementById("pos-display");
-const textEditBar = document.getElementById("text-edit-bar");
-const segmentInputs = document.getElementById("segment-inputs");
-const textReset = document.getElementById("text-reset");
-const solveBtn = document.getElementById("solve-btn");
-const solvePanel = document.getElementById("solve-panel");
-const solveClose = document.getElementById("solve-close");
-const solveStart = document.getElementById("solve-start");
-const solveStop = document.getElementById("solve-stop");
-const solveStatus = document.getElementById("solve-status");
-const solveResults = document.getElementById("solve-results");
+const popover = document.getElementById("popover");
+const popoverClose = document.getElementById("popover-close");
+const popoverContext = document.getElementById("popover-context");
+const popoverFontInfo = document.getElementById("popover-font-info");
 const solveCharset = document.getElementById("solve-charset");
 const solveTolerance = document.getElementById("solve-tolerance");
 const solveTolValue = document.getElementById("solve-tol-value");
@@ -45,24 +28,26 @@ const solveMode = document.getElementById("solve-mode");
 const solveFilter = document.getElementById("solve-filter");
 const solveFilterPrefix = document.getElementById("solve-filter-prefix");
 const solveFilterSuffix = document.getElementById("solve-filter-suffix");
+const solveStart = document.getElementById("solve-start");
+const solveStop = document.getElementById("solve-stop");
 const solveAccept = document.getElementById("solve-accept");
+const solveStatus = document.getElementById("solve-status");
+const solveResults = document.getElementById("solve-results");
 
-// State
+// ── State ──
+
 const state = {
   docId: null,
   pageCount: 0,
   currentPage: 1,
-  pageData: {},        // page -> {lines: [...]}
-  selectedLine: null,  // index into current page's lines
-  lineOverrides: {},   // "page-lineIdx" -> {fontId, fontSize, segments: [{text, offsetX}], gapWidths: [px, ...], gapPreviews: [str|null, ...]}
-  activeSegment: 0,    // which segment the d-pad / focus applies to
-  fonts: [],           // [{name, id, available}]
+  redactions: {},        // id -> {id, x, y, w, h, page, status, analysis, solution, preview}
+  activeRedaction: null,  // id of currently active redaction
+  fonts: [],
   fontsReady: false,
-  // Viewport: panX/panY are the document-space coords at the center of the panel
   zoom: 1,
   panX: 0,
   panY: 0,
-  associates: null,  // {names: {str: [...]}, persons: {str: {...}}}
+  associates: null,
 };
 
 // ── Font loading ──
@@ -72,7 +57,6 @@ async function loadFonts() {
   const data = await resp.json();
   state.fonts = data.fonts;
 
-  // Load available fonts via FontFace API
   const promises = state.fonts
     .filter((f) => f.available)
     .map(async (f) => {
@@ -87,22 +71,12 @@ async function loadFonts() {
 
   await Promise.all(promises);
   state.fontsReady = true;
-
-  // Populate font dropdown
-  fontSelect.innerHTML = "";
-  for (const f of state.fonts.filter((f) => f.available)) {
-    const opt = document.createElement("option");
-    opt.value = f.id;
-    opt.textContent = f.name;
-    fontSelect.appendChild(opt);
-  }
 }
 
 async function loadAssociates() {
   try {
     const resp = await fetch("/api/associates");
     state.associates = await resp.json();
-    // Convert victim_names array to Set for fast lookup
     state.associates.victim_set = new Set(state.associates.victim_names || []);
     console.log(`Loaded ${Object.keys(state.associates.names).length} associate lookups, ${state.associates.victim_set.size} victim names`);
   } catch (e) {
@@ -133,7 +107,6 @@ fileInput.addEventListener("change", () => {
 async function uploadFile(file) {
   uploadSection.innerHTML = '<p class="loading">Analyzing document...</p>';
 
-  // Start font + associates loading in parallel with upload
   const fontPromise = loadFonts();
   const assocPromise = loadAssociates();
 
@@ -146,7 +119,7 @@ async function uploadFile(file) {
   state.pageCount = data.page_count;
   state.currentPage = 1;
 
-  await Promise.all([fontPromise, assocPromise]); // ensure both are ready before rendering
+  await Promise.all([fontPromise, assocPromise]);
 
   uploadSection.hidden = true;
   viewerSection.hidden = false;
@@ -158,22 +131,45 @@ async function uploadFile(file) {
 
 async function loadPage(page) {
   state.currentPage = page;
-  state.selectedLine = null;
-  fontControls.hidden = true;
-  textEditBar.hidden = true;
+  state.activeRedaction = null;
+  closePopover();
   updatePageControls();
 
   // Load the original page image
   docImage.src = `/api/doc/${state.docId}/page/${page}/original`;
 
-  // Load page data if not cached
-  if (!state.pageData[page]) {
-    const resp = await fetch(`/api/doc/${state.docId}/page/${page}/data`);
-    state.pageData[page] = await resp.json();
+  // Load page redaction data
+  const resp = await fetch(`/api/doc/${state.docId}/page/${page}/data`);
+  const data = await resp.json();
+
+  // Clear redactions for other pages, populate for this page
+  // (keep solved redactions from other pages in state if desired,
+  //  but for simplicity we track per-page)
+  for (const key of Object.keys(state.redactions)) {
+    if (state.redactions[key].page !== page) continue;
+    // Already have this page's redactions; skip re-init if revisiting
   }
 
-  renderLineList();
-  clearCanvas();
+  // Initialize redactions for this page (only if not already present)
+  for (const r of data.redactions) {
+    if (!state.redactions[r.id]) {
+      state.redactions[r.id] = {
+        id: r.id,
+        x: r.x,
+        y: r.y,
+        w: r.w,
+        h: r.h,
+        page: page,
+        status: "unanalyzed",
+        analysis: null,
+        solution: null,
+        preview: null,
+      };
+    }
+  }
+
+  renderRedactionList();
+  renderCanvas();
 }
 
 function updatePageControls() {
@@ -189,355 +185,193 @@ nextBtn.addEventListener("click", () => {
   if (state.currentPage < state.pageCount) loadPage(state.currentPage + 1);
 });
 
-// ── Line list ──
+// ── Redaction list (left panel) ──
 
-function renderLineList() {
-  const pd = state.pageData[state.currentPage];
-  if (!pd) return;
+function getPageRedactions() {
+  return Object.values(state.redactions)
+    .filter((r) => r.page === state.currentPage)
+    .sort((a, b) => {
+      // Sort top-to-bottom, then left-to-right
+      if (Math.abs(a.y - b.y) > 5) return a.y - b.y;
+      return a.x - b.x;
+    });
+}
 
-  lineList.innerHTML = "";
-  pd.lines.forEach((line, idx) => {
+function renderRedactionList() {
+  const redactions = getPageRedactions();
+  redactionList.innerHTML = "";
+
+  redactions.forEach((r, idx) => {
     const div = document.createElement("div");
-    div.className = "line-item";
-    div.dataset.idx = idx;
+    div.className = "redaction-item";
+    if (r.id === state.activeRedaction) div.classList.add("active");
+    div.dataset.id = r.id;
 
-    const textEl = document.createElement("div");
-    textEl.className = "line-text";
-    textEl.textContent = line.text;
+    const numEl = document.createElement("span");
+    numEl.className = "redaction-num";
+    numEl.textContent = `#${idx + 1}`;
 
-    const overrideKey = `${state.currentPage}-${idx}`;
-    const override = state.lineOverrides[overrideKey];
-    const fontName = override
-      ? state.fonts.find((f) => f.id === override.fontId)?.name || line.font.name
-      : line.font.name;
-    const fontSize = override ? override.fontSize : line.font.size;
+    const statusEl = document.createElement("span");
+    statusEl.className = `redaction-status status-${r.status}`;
+    statusEl.textContent = statusLabel(r.status);
 
-    const metaEl = document.createElement("div");
-    metaEl.className = "line-meta";
-    metaEl.textContent = `${fontName} ${fontSize}px (score: ${line.font.score.toFixed(1)})`;
+    const infoEl = document.createElement("div");
+    infoEl.className = "redaction-info";
+    infoEl.textContent = redactionInfoText(r);
 
-    div.appendChild(textEl);
-    div.appendChild(metaEl);
+    const headerRow = document.createElement("div");
+    headerRow.className = "redaction-header-row";
+    headerRow.appendChild(numEl);
+    headerRow.appendChild(statusEl);
 
-    div.addEventListener("click", () => selectLine(idx));
-    lineList.appendChild(div);
+    div.appendChild(headerRow);
+    div.appendChild(infoEl);
+
+    div.addEventListener("click", () => activateRedaction(r.id));
+    redactionList.appendChild(div);
   });
 }
 
-// ── Line selection ──
-
-function selectLine(idx) {
-  state.selectedLine = idx;
-
-  // Update selected class
-  lineList.querySelectorAll(".line-item").forEach((el, i) => {
-    el.classList.toggle("selected", i === idx);
-  });
-
-  const pd = state.pageData[state.currentPage];
-  const line = pd.lines[idx];
-  const overrideKey = `${state.currentPage}-${idx}`;
-  const override = state.lineOverrides[overrideKey];
-
-  // Populate font controls
-  const fontId = override ? override.fontId : line.font.id;
-  const fontSize = override ? override.fontSize : line.font.size;
-  fontSelect.value = fontId;
-  sizeSlider.value = fontSize;
-  sizeValue.textContent = fontSize;
-  fontControls.hidden = false;
-  textEditBar.hidden = false;
-
-  state.activeSegment = 0;
-  renderSegmentInputs();
-  updatePosDisplay();
-  renderOverlay();
-  scrollToLine(line);
-  updateSolveButton();
+function statusLabel(status) {
+  switch (status) {
+    case "unanalyzed": return "unanalyzed";
+    case "analyzing": return "analyzing...";
+    case "analyzed": return "analyzed";
+    case "solved": return "solved";
+    case "error": return "error";
+    default: return status;
+  }
 }
 
-function scrollToLine(line) {
-  // Pan so the line is centered in the viewport
-  state.panX = line.x + line.w / 2;
-  state.panY = line.y + line.h / 2;
+function redactionInfoText(r) {
+  if (r.status === "solved" && r.solution) {
+    return r.solution.text;
+  }
+  if ((r.status === "analyzed" || r.status === "solved") && r.analysis) {
+    const segs = r.analysis.segments;
+    const left = segs.length > 0 ? segs[0].text : "";
+    const right = segs.length > 1 ? segs[1].text : "";
+    const leftTail = left.length > 15 ? "..." + left.slice(-15) : left;
+    const rightHead = right.length > 15 ? right.slice(0, 15) + "..." : right;
+    return `${leftTail} [___] ${rightHead}`;
+  }
+  return `${Math.round(r.w)} x ${Math.round(r.h)} px`;
+}
+
+// ── Activate redaction ──
+
+function activateRedaction(id) {
+  const r = state.redactions[id];
+  if (!r) return;
+
+  state.activeRedaction = id;
+
+  // Pan to center on the redaction
+  state.panX = r.x + r.w / 2;
+  state.panY = r.y + r.h / 2;
   applyTransform(true);
-}
 
-// ── Font controls ──
+  renderRedactionList();
+  renderCanvas();
 
-fontSelect.addEventListener("change", () => saveOverrideAndRender());
-sizeSlider.addEventListener("input", () => {
-  sizeValue.textContent = sizeSlider.value;
-  saveOverrideAndRender();
-});
-sizeDown.addEventListener("click", () => {
-  sizeSlider.value = Math.max(8, parseInt(sizeSlider.value) - 1);
-  sizeValue.textContent = sizeSlider.value;
-  saveOverrideAndRender();
-});
-sizeUp.addEventListener("click", () => {
-  sizeSlider.value = Math.min(120, parseInt(sizeSlider.value) + 1);
-  sizeValue.textContent = sizeSlider.value;
-  saveOverrideAndRender();
-});
-
-function nudge(dx, dy) {
-  if (state.selectedLine === null) return;
-  const override = ensureOverride();
-  if (dx !== 0) {
-    if (state.activeSegment === 0) {
-      // First segment: nudge its position (line alignment)
-      override.segments[0].offsetX += dx;
-    } else {
-      // Any other segment: adjust the gap before it
-      const gapIdx = state.activeSegment - 1;
-      if (override.gapWidths[gapIdx] !== undefined) {
-        override.gapWidths[gapIdx] = Math.max(1, override.gapWidths[gapIdx] + dx);
-      }
-    }
-  }
-  if (dy !== 0) {
-    override.offsetY = (override.offsetY || 0) + dy;
-  }
-  updatePosDisplay();
-  renderOverlay();
-}
-
-function updatePosDisplay() {
-  const key = `${state.currentPage}-${state.selectedLine}`;
-  const override = state.lineOverrides[key];
-  const y = override?.offsetY ?? 0;
-  if (state.activeSegment > 0) {
-    // Non-first segment: show gap before it
-    const gapIdx = state.activeSegment - 1;
-    const gw = override?.gapWidths?.[gapIdx] ?? 0;
-    posDisplay.textContent = `gap: ${gw}px, y: ${y}`;
-  } else {
-    // First segment: show offset
-    const seg = override?.segments?.[0];
-    const x = seg?.offsetX ?? 0;
-    posDisplay.textContent = `${x}, ${y}`;
+  if (r.status === "unanalyzed") {
+    analyzeRedaction(id);
+  } else if (r.status === "analyzed" || r.status === "solved") {
+    openPopover(id);
   }
 }
 
-posUp.addEventListener("click", () => nudge(0, -1));
-posDown.addEventListener("click", () => nudge(0, 1));
-posLeft.addEventListener("click", () => nudge(-1, 0));
-posRight.addEventListener("click", () => nudge(1, 0));
-posReset.addEventListener("click", () => {
-  if (state.selectedLine === null) return;
-  const override = ensureOverride();
-  if (state.activeSegment > 0) {
-    // Non-first segment: reset gap before it to default (fontSize * 2)
-    const gapIdx = state.activeSegment - 1;
-    if (override.gapWidths[gapIdx] !== undefined) {
-      override.gapWidths[gapIdx] = override.fontSize * 2;
-    }
-  } else {
-    // First segment: reset offset
-    const seg = override.segments[0];
-    if (seg) seg.offsetX = 0;
-  }
-  override.offsetY = 0;
-  updatePosDisplay();
-  renderOverlay();
-});
+// ── Analyze redaction ──
 
-// ── Segments model ──
-//
-// Each line override has a `segments` array: [{text, offsetX, offsetY}, ...]
-// A line with no redactions has 1 segment. Ctrl+Space splits a segment,
-// inserting a redaction gap. The d-pad affects state.activeSegment.
+async function analyzeRedaction(id) {
+  const r = state.redactions[id];
+  if (!r) return;
 
-function getSegments() {
-  const key = `${state.currentPage}-${state.selectedLine}`;
-  return state.lineOverrides[key]?.segments;
-}
+  r.status = "analyzing";
+  renderRedactionList();
 
-function ensureOverride() {
-  const key = `${state.currentPage}-${state.selectedLine}`;
-  if (!state.lineOverrides[key]) {
-    const pd = state.pageData[state.currentPage];
-    const line = pd.lines[state.selectedLine];
-    state.lineOverrides[key] = {
-      fontId: line.font.id,
-      fontSize: line.font.size,
-      offsetY: 0,
-      segments: [{ text: line.text, offsetX: 0 }],
-      gapWidths: [],  // one entry per gap between segments
-      gapPreviews: [],  // one entry per gap: null or preview text
-    };
-  }
-  return state.lineOverrides[key];
-}
+  try {
+    const resp = await fetch("/api/redaction/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        doc_id: state.docId,
+        page: r.page,
+        redaction: { x: r.x, y: r.y, w: r.w, h: r.h },
+      }),
+    });
 
-function ensureSegments() {
-  return ensureOverride().segments;
-}
-
-// ── Segment UI ──
-
-function renderSegmentInputs() {
-  const segments = getSegments();
-  const pd = state.pageData[state.currentPage];
-  const line = pd.lines[state.selectedLine];
-
-  segmentInputs.innerHTML = "";
-
-  // If no override yet, show single input with original text
-  const segs = segments || [{ text: line.text, offsetX: 0, offsetY: 0 }];
-
-  const key = `${state.currentPage}-${state.selectedLine}`;
-  const overrideForSegs = state.lineOverrides[key];
-
-  segs.forEach((seg, i) => {
-    if (i > 0) {
-      // Redaction marker between segments — show preview text if set
-      const preview = overrideForSegs?.gapPreviews?.[i - 1] ?? null;
-      const marker = document.createElement("span");
-      marker.className = preview ? "redaction-marker preview" : "redaction-marker";
-      marker.textContent = preview || "???";
-      marker.title = preview ? `Preview: ${preview}` : "Redaction gap";
-      segmentInputs.appendChild(marker);
+    if (!resp.ok) {
+      const err = await resp.json();
+      r.status = "error";
+      console.error("Analysis failed:", err);
+      renderRedactionList();
+      return;
     }
 
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "seg-input";
-    input.value = seg.text;
-    input.spellcheck = false;
-    input.autocomplete = "off";
-    input.dataset.segIdx = i;
-    if (i === state.activeSegment) input.classList.add("active-segment");
+    const data = await resp.json();
+    r.status = "analyzed";
+    r.analysis = data;
+    renderRedactionList();
+    renderCanvas();
 
-    input.addEventListener("focus", () => {
-      state.activeSegment = i;
-      segmentInputs.querySelectorAll(".seg-input").forEach((el, j) => {
-        el.classList.toggle("active-segment", j === i);
-      });
-      updatePosDisplay();
-    });
-
-    input.addEventListener("input", () => {
-      const segs = ensureSegments();
-      segs[i].text = input.value;
-      renderOverlay();
-      updateLineListPreview();
-    });
-
-    // Ctrl+Space: split this segment at cursor, inserting a redaction gap
-    input.addEventListener("keydown", (e) => {
-      if (e.ctrlKey && e.code === "Space") {
-        e.preventDefault();
-        splitSegmentAtCursor(i, input);
-      }
-    });
-
-    segmentInputs.appendChild(input);
-  });
-
-  // Hint if only one segment
-  if (segs.length === 1) {
-    const hint = document.createElement("span");
-    hint.className = "seg-hint";
-    hint.textContent = "Ctrl+Space to add redaction";
-    segmentInputs.appendChild(hint);
+    // Only open popover if this is still the active redaction
+    if (state.activeRedaction === id) {
+      openPopover(id);
+    }
+  } catch (e) {
+    r.status = "error";
+    console.error("Analysis error:", e);
+    renderRedactionList();
   }
 }
 
-function splitSegmentAtCursor(segIdx, inputEl) {
-  const segs = ensureSegments();
-  const seg = segs[segIdx];
-  const pos = inputEl.selectionStart;
-  const before = seg.text.slice(0, pos);
-  const after = seg.text.slice(pos);
+// ── Popover ──
 
-  // Replace this segment with two, separated by the new redaction gap
-  segs.splice(segIdx, 1,
-    { text: before, offsetX: seg.offsetX },
-    { text: after, offsetX: 0 },
-  );
+function openPopover(id) {
+  const r = state.redactions[id];
+  if (!r || !r.analysis) return;
 
-  // Initialize gap width and preview for the new gap
-  const override = ensureOverride();
-  const fontSize = override.fontSize;
-  override.gapWidths.splice(segIdx, 0, fontSize * 2);
-  override.gapPreviews.splice(segIdx, 0, null);
+  const a = r.analysis;
 
-  // Focus the new segment after the gap
-  state.activeSegment = segIdx + 1;
-  renderSegmentInputs();
-  renderOverlay();
-  updateLineListPreview();
-  updateSolveButton();
+  // Context line
+  const segs = a.segments;
+  const leftText = segs.length > 0 ? segs[0].text : "";
+  const rightText = segs.length > 1 ? segs[1].text : "";
+  popoverContext.innerHTML = `<span class="ctx-left">${escapeHtml(leftText)}</span><span class="ctx-gap">\u2588\u2588\u2588</span><span class="ctx-right">${escapeHtml(rightText)}</span>`;
 
-  // Focus the new input
-  const inputs = segmentInputs.querySelectorAll(".seg-input");
-  if (inputs[state.activeSegment]) {
-    inputs[state.activeSegment].focus();
-    inputs[state.activeSegment].setSelectionRange(0, 0);
-  }
+  // Font info
+  const font = a.font;
+  popoverFontInfo.innerHTML = `
+    <span>${escapeHtml(font.name)} ${font.size}px</span>
+    <span class="font-score">score: ${font.score.toFixed(1)}</span>
+    <span class="gap-width">gap: ${Math.round(a.gap.w)}px</span>
+  `;
+
+  // Pre-fill prefix/suffix from context
+  solveFilterPrefix.value = "";
+  solveFilterSuffix.value = "";
+
+  // Reset solver state
+  solveResults.innerHTML = "";
+  solveStatus.textContent = "";
+  solveStart.hidden = false;
+  solveStop.hidden = true;
+  solveAccept.hidden = !!(r.preview === null);
+
+  popover.hidden = false;
 }
 
-function updateLineListPreview() {
-  const items = lineList.querySelectorAll(".line-item");
-  if (!items[state.selectedLine]) return;
-  const segs = getSegments();
-  const pd = state.pageData[state.currentPage];
-  const line = pd.lines[state.selectedLine];
-  const textEl = items[state.selectedLine].querySelector(".line-text");
-  if (segs && segs.length > 1) {
-    const key = `${state.currentPage}-${state.selectedLine}`;
-    const ovr = state.lineOverrides[key];
-    const parts = segs.map((s, i) => {
-      if (i === 0) return s.text;
-      const preview = ovr?.gapPreviews?.[i - 1];
-      return (preview ? `[${preview}]` : "[???]") + s.text;
-    });
-    textEl.textContent = parts.join(" ");
-  } else if (segs) {
-    textEl.textContent = segs[0].text;
-  } else {
-    textEl.textContent = line.text;
-  }
+function closePopover() {
+  popover.hidden = true;
+  stopSolve();
 }
 
-textReset.addEventListener("click", () => {
-  if (state.selectedLine === null) return;
-  const key = `${state.currentPage}-${state.selectedLine}`;
-  const override = state.lineOverrides[key];
-  if (override) {
-    const pd = state.pageData[state.currentPage];
-    const line = pd.lines[state.selectedLine];
-    override.segments = [{ text: line.text, offsetX: 0 }];
-    override.gapWidths = [];
-    override.gapPreviews = [];
-    override.offsetY = 0;
-  }
-  state.activeSegment = 0;
-  renderSegmentInputs();
-  updatePosDisplay();
-  renderOverlay();
-  updateLineListPreview();
-  updateSolveButton();
+popoverClose.addEventListener("click", closePopover);
+
+solveTolerance.addEventListener("input", () => {
+  solveTolValue.textContent = solveTolerance.value;
 });
-
-function saveOverrideAndRender() {
-  if (state.selectedLine === null) return;
-  const key = `${state.currentPage}-${state.selectedLine}`;
-  const prev = state.lineOverrides[key];
-  const override = ensureOverride();
-  override.fontId = fontSelect.value;
-  override.fontSize = parseInt(sizeSlider.value);
-  renderOverlay();
-  // Update the meta text in the line list
-  const items = lineList.querySelectorAll(".line-item");
-  if (items[state.selectedLine]) {
-    const meta = items[state.selectedLine].querySelector(".line-meta");
-    const fontName = state.fonts.find((f) => f.id === fontSelect.value)?.name || "?";
-    meta.textContent = `${fontName} ${sizeSlider.value}px (override)`;
-  }
-}
 
 // ── Canvas rendering ──
 
@@ -546,109 +380,166 @@ function clearCanvas() {
   canvas.height = 0;
 }
 
-function renderOverlay() {
-  if (state.selectedLine === null || !state.fontsReady) return;
-  if (!docImage.naturalWidth) return;
+function renderCanvas() {
+  if (!docImage.naturalWidth || !state.fontsReady) return;
 
-  const pd = state.pageData[state.currentPage];
-  const line = pd.lines[state.selectedLine];
-  const overrideKey = `${state.currentPage}-${state.selectedLine}`;
-  const override = state.lineOverrides[overrideKey];
+  const redactions = getPageRedactions();
 
-  const fontId = override ? override.fontId : line.font.id;
-  const fontSize = override ? override.fontSize : line.font.size;
-  const fontName = state.fonts.find((f) => f.id === fontId)?.name || line.font.name;
-  const fontStr = `${fontSize}px "${fontName}"`;
-
-  // Canvas resolution matches native image; CSS size matches natural size
   canvas.width = docImage.naturalWidth;
   canvas.height = docImage.naturalHeight;
   canvas.style.width = docImage.naturalWidth + "px";
   canvas.style.height = docImage.naturalHeight + "px";
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.font = fontStr;
-  ctx.textBaseline = "top";
 
-  // Draw bounding box for reference (at original position)
-  ctx.strokeStyle = "rgba(0, 200, 0, 0.3)";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(line.x, line.y, line.w, line.h);
+  for (const r of redactions) {
+    const isActive = r.id === state.activeRedaction;
 
-  const segments = override?.segments || [{ text: line.text, offsetX: 0 }];
-  const sharedY = override?.offsetY || 0;
-
-  // Render each segment; track x cursor for positioning
-  let cursorX = line.x;
-
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    const sx = cursorX + seg.offsetX;
-    const sy = line.y + sharedY;
-
-    // Draw segment text
-    const isActive = i === state.activeSegment;
-    ctx.fillStyle = isActive ? "rgba(0, 230, 0, 0.7)" : "rgba(0, 200, 0, 0.5)";
-    ctx.font = fontStr;
-    ctx.fillText(seg.text, sx, sy);
-
-    const textWidth = ctx.measureText(seg.text).width;
-    cursorX = sx + textWidth;
-
-    // If there's a next segment, draw the redaction gap or preview
-    if (i < segments.length - 1) {
-      const gapStart = cursorX;
-      const gapWidth = override?.gapWidths?.[i] ?? fontSize * 2;
-      const preview = override?.gapPreviews?.[i] ?? null;
-
-      if (preview) {
-        // Draw preview text in the gap area
-        ctx.font = fontStr;
-        ctx.fillStyle = "rgba(255, 200, 0, 0.85)";
-        ctx.fillText(preview, gapStart, line.y + sharedY);
-        const previewWidth = ctx.measureText(preview).width;
-
-        // Subtle highlight behind preview text
-        const pad = fontSize * 0.1;
-        ctx.fillStyle = "rgba(255, 200, 0, 0.12)";
-        ctx.fillRect(gapStart, line.y - pad, gapWidth, line.h + pad * 2);
-
-        // Advance cursor past the original gap width (keeps alignment stable)
-        cursorX = gapStart + gapWidth;
-      } else {
-        // Draw redaction indicator — full line height, strong red
-        const pad = fontSize * 0.15;
-        ctx.fillStyle = "rgba(211, 47, 47, 0.5)";
-        ctx.fillRect(gapStart, line.y - pad, gapWidth, line.h + pad * 2);
-        ctx.strokeStyle = "rgba(211, 47, 47, 0.8)";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(gapStart, line.y - pad, gapWidth, line.h + pad * 2);
-
-        // Draw gap width label centered in the gap
-        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-        ctx.font = `bold ${Math.min(fontSize * 0.5, 16)}px sans-serif`;
-        const label = `${Math.round(gapWidth)}px`;
-        const labelWidth = ctx.measureText(label).width;
-        ctx.fillText(label, gapStart + (gapWidth - labelWidth) / 2, line.y + line.h * 0.3);
-        ctx.font = fontStr; // restore
-
-        // Advance cursor past the gap
-        cursorX = gapStart + gapWidth;
-      }
+    if (r.status === "solved" && r.solution) {
+      // Green solution text
+      drawRedactionSolution(r, isActive);
+    } else if (r.preview) {
+      // Yellow preview text
+      drawRedactionPreview(r, isActive);
+    } else if (r.status === "analyzed" && r.analysis) {
+      // Blue overlay with analysis context
+      drawRedactionAnalyzed(r, isActive);
+    } else {
+      // Default: semi-transparent blue overlay
+      drawRedactionUnanalyzed(r, isActive);
     }
   }
 }
 
+function drawRedactionUnanalyzed(r, isActive) {
+  const alpha = isActive ? 0.4 : 0.25;
+  const borderAlpha = isActive ? 0.9 : 0.5;
+
+  ctx.fillStyle = `rgba(66, 133, 244, ${alpha})`;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+
+  ctx.strokeStyle = `rgba(66, 133, 244, ${borderAlpha})`;
+  ctx.lineWidth = isActive ? 2.5 : 1.5;
+  ctx.strokeRect(r.x, r.y, r.w, r.h);
+}
+
+function drawRedactionAnalyzed(r, isActive) {
+  const alpha = isActive ? 0.35 : 0.2;
+  const borderAlpha = isActive ? 0.9 : 0.5;
+
+  ctx.fillStyle = `rgba(66, 133, 244, ${alpha})`;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+
+  ctx.strokeStyle = `rgba(66, 133, 244, ${borderAlpha})`;
+  ctx.lineWidth = isActive ? 2.5 : 1.5;
+  ctx.strokeRect(r.x, r.y, r.w, r.h);
+
+  // Draw a small "?" label centered in the redaction
+  const labelSize = Math.min(r.h * 0.5, 18);
+  ctx.fillStyle = `rgba(255, 255, 255, ${isActive ? 0.8 : 0.5})`;
+  ctx.font = `bold ${labelSize}px sans-serif`;
+  ctx.textBaseline = "middle";
+  const label = "?";
+  const lw = ctx.measureText(label).width;
+  ctx.fillText(label, r.x + (r.w - lw) / 2, r.y + r.h / 2);
+}
+
+function drawRedactionPreview(r, isActive) {
+  if (!r.analysis) return;
+  const a = r.analysis;
+  const font = a.font;
+  const fontName = font.name;
+  const fontSize = font.size;
+  const fontStr = `${fontSize}px "${fontName}"`;
+
+  // Yellow highlight behind the gap area
+  const pad = fontSize * 0.1;
+  ctx.fillStyle = isActive ? "rgba(255, 200, 0, 0.2)" : "rgba(255, 200, 0, 0.12)";
+  ctx.fillRect(a.gap.x, r.y - pad, a.gap.w, r.h + pad * 2);
+
+  // Yellow border
+  ctx.strokeStyle = isActive ? "rgba(255, 200, 0, 0.8)" : "rgba(255, 200, 0, 0.5)";
+  ctx.lineWidth = isActive ? 2 : 1;
+  ctx.strokeRect(a.gap.x, r.y - pad, a.gap.w, r.h + pad * 2);
+
+  // Draw preview text
+  ctx.font = fontStr;
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "rgba(255, 200, 0, 0.9)";
+  ctx.fillText(r.preview, a.gap.x, a.line.y);
+}
+
+function drawRedactionSolution(r, isActive) {
+  if (!r.analysis) return;
+  const a = r.analysis;
+  const font = a.font;
+  const fontName = font.name;
+  const fontSize = font.size;
+  const fontStr = `${fontSize}px "${fontName}"`;
+
+  // Green highlight
+  const pad = fontSize * 0.1;
+  ctx.fillStyle = isActive ? "rgba(0, 212, 116, 0.15)" : "rgba(0, 212, 116, 0.08)";
+  ctx.fillRect(a.gap.x, r.y - pad, a.gap.w, r.h + pad * 2);
+
+  // Green border
+  ctx.strokeStyle = isActive ? "rgba(0, 212, 116, 0.8)" : "rgba(0, 212, 116, 0.4)";
+  ctx.lineWidth = isActive ? 2 : 1;
+  ctx.strokeRect(a.gap.x, r.y - pad, a.gap.w, r.h + pad * 2);
+
+  // Draw solution text
+  ctx.font = fontStr;
+  ctx.textBaseline = "top";
+  ctx.fillStyle = "rgba(0, 212, 116, 0.95)";
+  ctx.fillText(r.solution.text, a.gap.x, a.line.y);
+}
+
+// ── Canvas hit-testing ──
+
+canvas.style.pointerEvents = "auto";
+
+canvas.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
+
+  const rect = rightPanel.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const doc = screenToDoc(sx, sy);
+
+  const hit = hitTestRedaction(doc.x, doc.y);
+  if (hit) {
+    e.stopPropagation();
+    // Only activate if it wasn't a drag start
+    activateRedaction(hit.id);
+  }
+  // If no hit, event bubbles to rightPanel for panning
+});
+
+canvas.addEventListener("mousemove", (e) => {
+  const rect = rightPanel.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const doc = screenToDoc(sx, sy);
+
+  const hit = hitTestRedaction(doc.x, doc.y);
+  canvas.style.cursor = hit ? "pointer" : "";
+});
+
+function hitTestRedaction(docX, docY) {
+  const redactions = getPageRedactions();
+  for (const r of redactions) {
+    if (docX >= r.x && docX <= r.x + r.w && docY >= r.y && docY <= r.y + r.h) {
+      return r;
+    }
+  }
+  return null;
+}
+
 // ── Viewport (Google Maps-style zoom & pan) ──
-//
-// The model: panX/panY are document-space coordinates at the center of the
-// viewport.  zoom is the scale factor.  We compute a single CSS transform
-// on #doc-container that maps document coords to screen coords.
 
 function applyTransform(smooth) {
   const pw = rightPanel.clientWidth;
   const ph = rightPanel.clientHeight;
-  // translate so that (panX, panY) lands at the center of the panel
   const tx = pw / 2 - state.panX * state.zoom;
   const ty = ph / 2 - state.panY * state.zoom;
 
@@ -663,7 +554,6 @@ function applyTransform(smooth) {
   zoomLevel.textContent = `${Math.round(state.zoom * 100)}%`;
 }
 
-// Convert screen coords (relative to panel) → document coords
 function screenToDoc(sx, sy) {
   const pw = rightPanel.clientWidth;
   const ph = rightPanel.clientHeight;
@@ -675,13 +565,10 @@ function screenToDoc(sx, sy) {
 
 function zoomTo(newZoom, pivotSX, pivotSY, smooth) {
   newZoom = Math.max(0.1, Math.min(20, newZoom));
-  // If a screen-space pivot is given, keep that document point stationary
   if (pivotSX !== undefined) {
     const doc = screenToDoc(pivotSX, pivotSY);
     state.panX = doc.x;
     state.panY = doc.y;
-    // After zoom, (doc.x, doc.y) should still appear at (pivotSX, pivotSY).
-    // Since applyTransform centers panX/panY in the panel, we need to offset.
     const pw = rightPanel.clientWidth;
     const ph = rightPanel.clientHeight;
     state.panX += (pw / 2 - pivotSX) / newZoom;
@@ -689,7 +576,6 @@ function zoomTo(newZoom, pivotSX, pivotSY, smooth) {
   }
   state.zoom = newZoom;
   applyTransform(!!smooth);
-  renderOverlay();
 }
 
 function zoomToFit() {
@@ -698,11 +584,10 @@ function zoomToFit() {
   const ph = rightPanel.clientHeight;
   const iw = docImage.naturalWidth;
   const ih = docImage.naturalHeight;
-  state.zoom = Math.min(pw / iw, ph / ih) * 0.95; // small margin
+  state.zoom = Math.min(pw / iw, ph / ih) * 0.95;
   state.panX = iw / 2;
   state.panY = ih / 2;
   applyTransform(true);
-  renderOverlay();
 }
 
 // Button zoom (centered)
@@ -716,19 +601,18 @@ zoomFitBtn.addEventListener("click", zoomToFit);
 
 // Mouse-wheel zoom toward cursor
 rightPanel.addEventListener("wheel", (e) => {
-  if (fontControls.contains(e.target) || textEditBar.contains(e.target) || solvePanel.contains(e.target)) return;
+  if (popover.contains(e.target)) return;
   e.preventDefault();
   const rect = rightPanel.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
-  // Continuous zoom: scale by small increments for smoothness
   const factor = Math.pow(1.002, -e.deltaY);
   zoomTo(state.zoom * factor, sx, sy, false);
 }, { passive: false });
 
 // Double-click to zoom in
 rightPanel.addEventListener("dblclick", (e) => {
-  if (fontControls.contains(e.target) || textEditBar.contains(e.target) || solvePanel.contains(e.target)) return;
+  if (popover.contains(e.target)) return;
   const rect = rightPanel.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
@@ -741,8 +625,7 @@ let drag = null;
 
 rightPanel.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
-  // Don't start panning when interacting with toolbars or solve panel
-  if (fontControls.contains(e.target) || textEditBar.contains(e.target) || solvePanel.contains(e.target)) return;
+  if (popover.contains(e.target)) return;
   drag = {
     startX: e.clientX,
     startY: e.clientY,
@@ -759,7 +642,6 @@ window.addEventListener("mousemove", (e) => {
   const dx = e.clientX - drag.startX;
   const dy = e.clientY - drag.startY;
   if (Math.abs(dx) > 2 || Math.abs(dy) > 2) drag.moved = true;
-  // Translate screen deltas back to document space
   state.panX = drag.startPanX - dx / state.zoom;
   state.panY = drag.startPanY - dy / state.zoom;
   applyTransform(false);
@@ -789,12 +671,10 @@ rightPanel.addEventListener("touchmove", (e) => {
     const [t0, t1] = e.touches;
     const [p0, p1] = lastTouches;
 
-    // Distance change → zoom
     const oldDist = Math.hypot(p1.clientX - p0.clientX, p1.clientY - p0.clientY);
     const newDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
     const zoomDelta = newDist / oldDist;
 
-    // Midpoint movement → pan
     const oldMidX = (p0.clientX + p1.clientX) / 2;
     const oldMidY = (p0.clientY + p1.clientY) / 2;
     const newMidX = (t0.clientX + t1.clientX) / 2;
@@ -820,208 +700,41 @@ rightPanel.addEventListener("touchend", () => {
 
 const resizeObserver = new ResizeObserver(() => {
   applyTransform(false);
-  if (state.selectedLine !== null) {
-    renderOverlay();
-  }
+  renderCanvas();
 });
 resizeObserver.observe(rightPanel);
 
 // On image load, fit to viewport
 docImage.addEventListener("load", () => {
   zoomToFit();
-  if (state.selectedLine !== null) {
-    renderOverlay();
-  }
+  renderCanvas();
 });
 
-// ── Solve panel ──
+// ── Solve ──
 
 let activeEventSource = null;
-let activeSolveGapIdx = null;
-
-function updateSolveButton() {
-  const segs = getSegments();
-  solveBtn.hidden = !(segs && segs.length > 1);
-}
-
-solveBtn.addEventListener("click", () => {
-  solvePanel.hidden = false;
-  solveAccept.hidden = true;
-});
-
-solveClose.addEventListener("click", () => {
-  solvePanel.hidden = true;
-  stopSolve();
-});
-
-solveTolerance.addEventListener("input", () => {
-  solveTolValue.textContent = solveTolerance.value;
-});
-
-// ── Associate matching ──
-
-const MATCH_TYPE_WEIGHTS = {
-  full: 4,
-  nickname_full: 3,
-  initial_last: 2,
-  last: 2,
-  first: 1,
-  nickname: 1,
-};
-
-function matchAssociates(text) {
-  if (!state.associates?.names) return [];
-
-  const prefix = solveFilterPrefix.value.toLowerCase().trim();
-  const suffix = solveFilterSuffix.value.toLowerCase().trim();
-  const gapKey = text.toLowerCase().trim();
-
-  // Try the gap text alone, and also with prefix/suffix combined
-  // e.g., gap="oe", prefix="j" → also look up "joe"
-  const keysToTry = new Set([gapKey]);
-  if (prefix || suffix) keysToTry.add(prefix + gapKey + suffix);
-  if (prefix) keysToTry.add(prefix + gapKey);
-  if (suffix) keysToTry.add(gapKey + suffix);
-
-  // Collect all matches, dedup by person_id, prefer the highest-scoring key
-  const bestByPerson = new Map();
-
-  for (const key of keysToTry) {
-    const entries = state.associates.names[key];
-    if (!entries) continue;
-    const isComposite = key !== gapKey; // matched via prefix+gap+suffix
-
-    for (const m of entries) {
-      const person = state.associates.persons[m.person_id];
-      const weight = MATCH_TYPE_WEIGHTS[m.match_type] || 1;
-      let score = (4 - m.tier) * weight;
-      if (isComposite) score += 3; // boost: prefix/suffix context confirms the match
-
-      const existing = bestByPerson.get(m.person_id);
-      if (!existing || score > existing.score) {
-        bestByPerson.set(m.person_id, {
-          personId: m.person_id,
-          personName: person?.name || "Unknown",
-          category: person?.category || "other",
-          tier: m.tier,
-          matchType: isComposite ? `${m.match_type} (${key})` : m.match_type,
-          score,
-        });
-      }
-    }
-  }
-
-  return [...bestByPerson.values()].sort((a, b) => b.score - a.score);
-}
-
-function tierBadgeClass(tier) {
-  if (tier === 1) return "tier-1";
-  if (tier === 2) return "tier-2";
-  return "tier-3";
-}
-
-function tierLabel(tier) {
-  if (tier === 1) return "T1";
-  if (tier === 2) return "T2";
-  return "T3";
-}
-
-function tierDescription(tier) {
-  if (tier === 1) return "Flight logs — traveled with Epstein";
-  if (tier === 2) return "Inner circle — staff, financial, or frequently named";
-  return "Named in Epstein case files";
-}
-
-function isVictimMatch(text) {
-  const vs = state.associates?.victim_set;
-  if (!vs || vs.size === 0) return false;
-  const key = text.toLowerCase().trim();
-  if (vs.has(key)) return true;
-  // Also check with prefix/suffix combined
-  const prefix = solveFilterPrefix.value.toLowerCase().trim();
-  const suffix = solveFilterSuffix.value.toLowerCase().trim();
-  if (prefix || suffix) {
-    if (vs.has(prefix + key + suffix)) return true;
-    if (prefix && vs.has(prefix + key)) return true;
-    if (suffix && vs.has(key + suffix)) return true;
-  }
-  return false;
-}
-
-function showAssocDetail(assocMatches, anchorEl) {
-  // Remove any existing popup
-  const old = document.getElementById("assoc-detail");
-  if (old) old.remove();
-
-  const popup = document.createElement("div");
-  popup.id = "assoc-detail";
-
-  let html = '<div class="assoc-detail-header">Possible associates<button class="assoc-detail-close">X</button></div>';
-  html += '<div class="assoc-detail-list">';
-
-  for (const m of assocMatches) {
-    const cls = tierBadgeClass(m.tier);
-    html += `<div class="assoc-detail-item">
-      <span class="assoc-badge ${cls}">${tierLabel(m.tier)}</span>
-      <div class="assoc-detail-info">
-        <div class="assoc-detail-name">${escapeHtml(m.personName)}</div>
-        <div class="assoc-detail-meta">${escapeHtml(tierDescription(m.tier))} · ${escapeHtml(m.category)} · matched on ${escapeHtml(m.matchType)}</div>
-      </div>
-    </div>`;
-  }
-
-  html += '</div>';
-  popup.innerHTML = html;
-
-  // Position near the badge
-  solvePanel.appendChild(popup);
-
-  // Close handlers
-  popup.querySelector(".assoc-detail-close").addEventListener("click", (e) => {
-    e.stopPropagation();
-    popup.remove();
-  });
-
-  // Close on outside click
-  const closeOnOutside = (e) => {
-    if (!popup.contains(e.target)) {
-      popup.remove();
-      document.removeEventListener("click", closeOnOutside, true);
-    }
-  };
-  setTimeout(() => document.addEventListener("click", closeOnOutside, true), 0);
-}
 
 solveStart.addEventListener("click", startSolve);
 solveStop.addEventListener("click", stopSolve);
+solveAccept.addEventListener("click", acceptSolution);
 
 function startSolve() {
-  if (state.selectedLine === null) return;
-  const segs = getSegments();
-  if (!segs || segs.length < 2) return;
+  const id = state.activeRedaction;
+  if (!id) return;
+  const r = state.redactions[id];
+  if (!r || !r.analysis) return;
 
-  const pd = state.pageData[state.currentPage];
-  const line = pd.lines[state.selectedLine];
-  const override = state.lineOverrides[`${state.currentPage}-${state.selectedLine}`];
-  const fontId = override ? override.fontId : line.font.id;
-  const fontSize = override ? override.fontSize : line.font.size;
-  const fontName = state.fonts.find(f => f.id === fontId)?.name || line.font.name;
+  const a = r.analysis;
+  const fontId = a.font.id;
+  const fontSize = a.font.size;
+  const gapWidth = a.gap.w;
 
-  // Find the gap before the active segment
-  if (state.activeSegment === 0) return; // no gap before first segment
-  const gapIdx = state.activeSegment - 1;
-
-  // Get gap width from the override's gapWidths array
-  const gapWidth = override?.gapWidths?.[gapIdx] ?? fontSize * 2;
-
-  // Context characters: segment before the gap, segment after the gap
-  const segBefore = segs[gapIdx];
-  const segAfter = segs[gapIdx + 1];
-  const leftCtx = segBefore.text.length > 0 ? segBefore.text[segBefore.text.length - 1] : "";
-  const rightCtx = segAfter.text.length > 0 ? segAfter.text[0] : "";
-
-  // Track which gap we're solving
-  activeSolveGapIdx = gapIdx;
+  // Context: last char before gap, first char after gap
+  const segs = a.segments;
+  const leftText = segs.length > 0 ? segs[0].text : "";
+  const rightText = segs.length > 1 ? segs[1].text : "";
+  const leftCtx = leftText.length > 0 ? leftText[leftText.length - 1] : "";
+  const rightCtx = rightText.length > 0 ? rightText[0] : "";
 
   // Clear previous results
   solveResults.innerHTML = "";
@@ -1074,7 +787,7 @@ function startSolve() {
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
-              handleSolveEvent(data, gapIdx);
+              handleSolveEvent(data, id);
             } catch (e) { /* skip malformed */ }
           }
         }
@@ -1091,7 +804,7 @@ function startSolve() {
   });
 }
 
-function handleSolveEvent(data, gapIdx) {
+function handleSolveEvent(data, redactionId) {
   if (data.status === "match") {
     const assocMatches = matchAssociates(data.text);
     const topMatch = assocMatches.length > 0 ? assocMatches[0] : null;
@@ -1131,10 +844,10 @@ function handleSolveEvent(data, gapIdx) {
     }
 
     div.addEventListener("click", () => {
-      const override = ensureOverride();
-      override.gapPreviews[gapIdx] = data.text;
-      renderOverlay();
-      renderSegmentInputs();
+      const r = state.redactions[redactionId];
+      if (!r) return;
+      r.preview = data.text;
+      renderCanvas();
       solveResults.querySelectorAll(".solve-result").forEach(el => el.classList.remove("active"));
       div.classList.add("active");
       solveAccept.hidden = false;
@@ -1146,7 +859,6 @@ function handleSolveEvent(data, gapIdx) {
       for (const existing of solveResults.children) {
         const exTier = parseInt(existing.dataset.assocTier || "99");
         const exScore = parseFloat(existing.dataset.assocScore || "0");
-        // Lower tier number = higher priority; within same tier, higher score wins
         if (topMatch.tier < exTier || (topMatch.tier === exTier && topMatch.score > exScore)) {
           solveResults.insertBefore(div, existing);
           inserted = true;
@@ -1179,48 +891,152 @@ function stopSolve() {
   solveStatus.textContent = "Stopped.";
 }
 
-solveAccept.addEventListener("click", acceptSolution);
-
 function acceptSolution() {
-  if (state.selectedLine === null || activeSolveGapIdx === null) return;
-  const key = `${state.currentPage}-${state.selectedLine}`;
-  const override = state.lineOverrides[key];
-  if (!override) return;
+  const id = state.activeRedaction;
+  if (!id) return;
+  const r = state.redactions[id];
+  if (!r || !r.preview) return;
 
-  const gapIdx = activeSolveGapIdx;
-  const previewText = override.gapPreviews[gapIdx];
-  if (!previewText) return;
+  r.status = "solved";
+  r.solution = {
+    text: r.preview,
+    fontName: r.analysis.font.name,
+    fontSize: r.analysis.font.size,
+  };
+  r.preview = null;
 
-  // Merge: segments[gapIdx].text + previewText + segments[gapIdx+1].text → single segment
-  const leftSeg = override.segments[gapIdx];
-  const rightSeg = override.segments[gapIdx + 1];
-  leftSeg.text = leftSeg.text + previewText + rightSeg.text;
-
-  // Remove the right segment
-  override.segments.splice(gapIdx + 1, 1);
-
-  // Remove the gap entry
-  override.gapWidths.splice(gapIdx, 1);
-  override.gapPreviews.splice(gapIdx, 1);
-
-  // Reset active segment to the merged segment
-  state.activeSegment = gapIdx;
-  activeSolveGapIdx = null;
-
-  // Stop any running solve and close panel
-  stopSolve();
-  solvePanel.hidden = true;
-  solveResults.innerHTML = "";
-  solveStatus.textContent = "";
-  solveAccept.hidden = true;
-
-  // Re-render everything
-  renderSegmentInputs();
-  updatePosDisplay();
-  renderOverlay();
-  updateLineListPreview();
-  updateSolveButton();
+  closePopover();
+  renderRedactionList();
+  renderCanvas();
 }
+
+// ── Associate matching ──
+
+const MATCH_TYPE_WEIGHTS = {
+  full: 4,
+  nickname_full: 3,
+  initial_last: 2,
+  last: 2,
+  first: 1,
+  nickname: 1,
+};
+
+function matchAssociates(text) {
+  if (!state.associates?.names) return [];
+
+  const prefix = solveFilterPrefix.value.toLowerCase().trim();
+  const suffix = solveFilterSuffix.value.toLowerCase().trim();
+  const gapKey = text.toLowerCase().trim();
+
+  const keysToTry = new Set([gapKey]);
+  if (prefix || suffix) keysToTry.add(prefix + gapKey + suffix);
+  if (prefix) keysToTry.add(prefix + gapKey);
+  if (suffix) keysToTry.add(gapKey + suffix);
+
+  const bestByPerson = new Map();
+
+  for (const key of keysToTry) {
+    const entries = state.associates.names[key];
+    if (!entries) continue;
+    const isComposite = key !== gapKey;
+
+    for (const m of entries) {
+      const person = state.associates.persons[m.person_id];
+      const weight = MATCH_TYPE_WEIGHTS[m.match_type] || 1;
+      let score = (4 - m.tier) * weight;
+      if (isComposite) score += 3;
+
+      const existing = bestByPerson.get(m.person_id);
+      if (!existing || score > existing.score) {
+        bestByPerson.set(m.person_id, {
+          personId: m.person_id,
+          personName: person?.name || "Unknown",
+          category: person?.category || "other",
+          tier: m.tier,
+          matchType: isComposite ? `${m.match_type} (${key})` : m.match_type,
+          score,
+        });
+      }
+    }
+  }
+
+  return [...bestByPerson.values()].sort((a, b) => b.score - a.score);
+}
+
+function tierBadgeClass(tier) {
+  if (tier === 1) return "tier-1";
+  if (tier === 2) return "tier-2";
+  return "tier-3";
+}
+
+function tierLabel(tier) {
+  if (tier === 1) return "T1";
+  if (tier === 2) return "T2";
+  return "T3";
+}
+
+function tierDescription(tier) {
+  if (tier === 1) return "Flight logs -- traveled with Epstein";
+  if (tier === 2) return "Inner circle -- staff, financial, or frequently named";
+  return "Named in Epstein case files";
+}
+
+function isVictimMatch(text) {
+  const vs = state.associates?.victim_set;
+  if (!vs || vs.size === 0) return false;
+  const key = text.toLowerCase().trim();
+  if (vs.has(key)) return true;
+  const prefix = solveFilterPrefix.value.toLowerCase().trim();
+  const suffix = solveFilterSuffix.value.toLowerCase().trim();
+  if (prefix || suffix) {
+    if (vs.has(prefix + key + suffix)) return true;
+    if (prefix && vs.has(prefix + key)) return true;
+    if (suffix && vs.has(key + suffix)) return true;
+  }
+  return false;
+}
+
+function showAssocDetail(assocMatches, anchorEl) {
+  const old = document.getElementById("assoc-detail");
+  if (old) old.remove();
+
+  const popup = document.createElement("div");
+  popup.id = "assoc-detail";
+
+  let html = '<div class="assoc-detail-header">Possible associates<button class="assoc-detail-close">X</button></div>';
+  html += '<div class="assoc-detail-list">';
+
+  for (const m of assocMatches) {
+    const cls = tierBadgeClass(m.tier);
+    html += `<div class="assoc-detail-item">
+      <span class="assoc-badge ${cls}">${tierLabel(m.tier)}</span>
+      <div class="assoc-detail-info">
+        <div class="assoc-detail-name">${escapeHtml(m.personName)}</div>
+        <div class="assoc-detail-meta">${escapeHtml(tierDescription(m.tier))} · ${escapeHtml(m.category)} · matched on ${escapeHtml(m.matchType)}</div>
+      </div>
+    </div>`;
+  }
+
+  html += '</div>';
+  popup.innerHTML = html;
+
+  popover.appendChild(popup);
+
+  popup.querySelector(".assoc-detail-close").addEventListener("click", (e) => {
+    e.stopPropagation();
+    popup.remove();
+  });
+
+  const closeOnOutside = (e) => {
+    if (!popup.contains(e.target)) {
+      popup.remove();
+      document.removeEventListener("click", closeOnOutside, true);
+    }
+  };
+  setTimeout(() => document.addEventListener("click", closeOnOutside, true), 0);
+}
+
+// ── Utility ──
 
 function escapeHtml(text) {
   const div = document.createElement("div");
