@@ -42,6 +42,8 @@ def test_process_returns_names_and_persons():
     result = process_associates(_sample_registry(), _sample_relationships())
     assert "names" in result
     assert "persons" in result
+    assert "victim_names" in result
+    assert isinstance(result["victim_names"], list)
 
 
 def test_tier1_traveled_with():
@@ -127,3 +129,21 @@ def test_nickname_generation():
     names = result["names"]
     assert "jeff" in names
     assert any(m["match_type"] == "nickname" for m in names["jeff"])
+
+
+def test_victim_names_generated():
+    """Victim names should be a flat list of lowercased name variants."""
+    result = process_associates(_sample_registry(), _sample_relationships())
+    vn = result["victim_names"]
+    # Known victims from the KNOWN_VICTIMS set should produce entries
+    assert "virginia giuffre" in vn
+    assert "giuffre" in vn
+    assert "virginia" in vn
+
+
+def test_victim_names_independent_of_associates():
+    """Victim names don't require the person to be in the registry."""
+    result = process_associates([], [])
+    vn = result["victim_names"]
+    # Victims come from the hardcoded set, not the registry
+    assert "virginia giuffre" in vn

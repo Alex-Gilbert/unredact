@@ -102,10 +102,12 @@ async function loadAssociates() {
   try {
     const resp = await fetch("/api/associates");
     state.associates = await resp.json();
-    console.log(`Loaded ${Object.keys(state.associates.names).length} associate lookups`);
+    // Convert victim_names array to Set for fast lookup
+    state.associates.victim_set = new Set(state.associates.victim_names || []);
+    console.log(`Loaded ${Object.keys(state.associates.names).length} associate lookups, ${state.associates.victim_set.size} victim names`);
   } catch (e) {
     console.warn("Failed to load associates data:", e);
-    state.associates = { names: {}, persons: {} };
+    state.associates = { names: {}, persons: {}, victim_set: new Set() };
   }
 }
 
@@ -930,6 +932,22 @@ function tierDescription(tier) {
   return "Named in Epstein case files";
 }
 
+function isVictimMatch(text) {
+  const vs = state.associates?.victim_set;
+  if (!vs || vs.size === 0) return false;
+  const key = text.toLowerCase().trim();
+  if (vs.has(key)) return true;
+  // Also check with prefix/suffix combined
+  const prefix = solveFilterPrefix.value.toLowerCase().trim();
+  const suffix = solveFilterSuffix.value.toLowerCase().trim();
+  if (prefix || suffix) {
+    if (vs.has(prefix + key + suffix)) return true;
+    if (prefix && vs.has(prefix + key)) return true;
+    if (suffix && vs.has(key + suffix)) return true;
+  }
+  return false;
+}
+
 function showAssocDetail(assocMatches, anchorEl) {
   // Remove any existing popup
   const old = document.getElementById("assoc-detail");
@@ -1089,6 +1107,16 @@ function handleSolveEvent(data, gapIdx) {
       <span class="result-text">${escapeHtml(data.text)}</span>
       <span class="result-error">${data.error_px.toFixed(1)}px ${data.source || ""}</span>
     `;
+
+    const victim = isVictimMatch(data.text);
+
+    if (victim) {
+      const vBadge = document.createElement("span");
+      vBadge.className = "assoc-badge victim";
+      vBadge.textContent = "V";
+      vBadge.title = "Matches a known victim name";
+      div.prepend(vBadge);
+    }
 
     if (assocMatches.length > 0) {
       const badge = document.createElement("button");
