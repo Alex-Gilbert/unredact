@@ -1,4 +1,4 @@
-.PHONY: build build-solver run stop restart solver app logs status clean dev kill
+.PHONY: build build-solver run stop restart solver app logs status clean dev kill build-associates build-emails
 
 SOLVER_BIN  = solver_rs/target/release/unredact-solver
 SOLVER_PORT ?= 3100
@@ -137,6 +137,9 @@ clean: stop
 
 build-associates:
 	$(PYTHON) scripts/build_associates.py
+
+build-emails:
+	$(PYTHON) scripts/build_emails.py
 
 test: solver
 	$(PYTHON) -m pytest tests/ --ignore=tests/test_alignment.py -v
