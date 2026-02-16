@@ -127,3 +127,78 @@ async def test_get_font_not_found():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/font/nonexistent-font")
         assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_solve_endpoint_enumerate():
+    """POST /api/solve should stream SSE results."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/fonts")
+        fonts = resp.json()["fonts"]
+        font = next(f for f in fonts if f["available"])
+
+        resp = await client.post("/api/solve", json={
+            "font_id": font["id"],
+            "font_size": 40,
+            "gap_width_px": 50.0,
+            "tolerance_px": 5.0,
+            "left_context": "",
+            "right_context": "",
+            "hints": {
+                "charset": "lowercase",
+                "min_length": 2,
+                "max_length": 3,
+            },
+            "mode": "enumerate",
+        })
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
+
+
+@pytest.mark.anyio
+async def test_solve_endpoint_dictionary():
+    """POST /api/solve with mode=dictionary should work."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/fonts")
+        fonts = resp.json()["fonts"]
+        font = next(f for f in fonts if f["available"])
+
+        resp = await client.post("/api/solve", json={
+            "font_id": font["id"],
+            "font_size": 40,
+            "gap_width_px": 50.0,
+            "tolerance_px": 5.0,
+            "left_context": "",
+            "right_context": "",
+            "hints": {
+                "charset": "lowercase",
+                "min_length": 1,
+                "max_length": 10,
+            },
+            "mode": "dictionary",
+        })
+        assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_dictionary_crud():
+    """Dictionary upload, list, delete endpoints."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/dictionary", json={
+            "name": "test-names",
+            "entries": ["Alice", "Bob", "Charlie"],
+        })
+        assert resp.status_code == 200
+
+        resp = await client.get("/api/dictionary")
+        assert resp.status_code == 200
+        assert "test-names" in resp.json()["dictionaries"]
+
+        resp = await client.delete("/api/dictionary/test-names")
+        assert resp.status_code == 200
+
+        resp = await client.get("/api/dictionary")
+        assert "test-names" not in resp.json()["dictionaries"]

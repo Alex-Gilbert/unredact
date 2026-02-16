@@ -1,18 +1,26 @@
+import asyncio
 import io
+import json
 import re
 import uuid
+import uuid as uuid_mod
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from fastapi import FastAPI, UploadFile
 from fastapi.responses import RedirectResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
+from pydantic import BaseModel
+from PIL import Image, ImageFont
+from sse_starlette.sse import EventSourceResponse
 
 from unredact.pipeline.rasterize import rasterize_pdf
 from unredact.pipeline.ocr import ocr_page
 from unredact.pipeline.font_detect import detect_fonts, CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.overlay import render_overlay
+from unredact.pipeline.solver import solve_gap_parallel
+from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary
+from unredact.pipeline.width_table import CHARSETS
 
 app = FastAPI(title="Unredact")
 
@@ -41,10 +49,6 @@ for _name in CANDIDATE_FONTS:
 @app.get("/")
 async def root():
     return RedirectResponse("/static/index.html")
-
-
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
 
 def _image_to_png_bytes(img: Image.Image) -> bytes:
@@ -148,3 +152,132 @@ async def get_page_data(doc_id: str, page: int):
         })
 
     return {"lines": lines_json}
+
+
+# In-memory dictionary store
+_dictionary_store = DictionaryStore()
+
+# Active solve tasks (for cancellation)
+_active_solves: dict[str, bool] = {}
+
+
+class SolveRequest(BaseModel):
+    font_id: str
+    font_size: int
+    gap_width_px: float
+    tolerance_px: float = 0.0
+    left_context: str = ""
+    right_context: str = ""
+    hints: dict = {}
+    mode: str = "enumerate"
+
+
+@app.post("/api/solve")
+async def solve(req: SolveRequest):
+    font_path = _font_id_to_path.get(req.font_id)
+    if not font_path:
+        return JSONResponse({"error": "font not found"}, status_code=404)
+
+    font = ImageFont.truetype(str(font_path), req.font_size)
+    charset_name = req.hints.get("charset", "lowercase")
+    charset = CHARSETS.get(charset_name, charset_name)
+    min_length = req.hints.get("min_length", 1)
+    max_length = req.hints.get("max_length", 10)
+
+    solve_id = uuid_mod.uuid4().hex[:12]
+    _active_solves[solve_id] = False
+
+    async def event_generator():
+        try:
+            found_texts = set()
+
+            if req.mode in ("dictionary", "both"):
+                entries = _dictionary_store.all_entries()
+                if entries:
+                    dict_results = solve_dictionary(
+                        font, entries, req.gap_width_px, req.tolerance_px,
+                        req.left_context, req.right_context,
+                    )
+                    for r in dict_results:
+                        if _active_solves.get(solve_id):
+                            break
+                        found_texts.add(r.text)
+                        yield json.dumps({
+                            "status": "match",
+                            "text": r.text,
+                            "width_px": round(r.width, 2),
+                            "error_px": round(r.error, 2),
+                            "source": "dictionary",
+                        })
+
+            if req.mode in ("enumerate", "both") and not _active_solves.get(solve_id):
+                loop = asyncio.get_event_loop()
+                results = await loop.run_in_executor(
+                    None,
+                    lambda: solve_gap_parallel(
+                        font=font,
+                        charset=charset,
+                        target_width=req.gap_width_px,
+                        tolerance=req.tolerance_px,
+                        min_length=min_length,
+                        max_length=max_length,
+                        left_context=req.left_context,
+                        right_context=req.right_context,
+                    ),
+                )
+                for r in results:
+                    if _active_solves.get(solve_id):
+                        break
+                    if r.text in found_texts:
+                        continue
+                    found_texts.add(r.text)
+                    yield json.dumps({
+                        "status": "match",
+                        "text": r.text,
+                        "width_px": round(r.width, 2),
+                        "error_px": round(r.error, 2),
+                        "source": "enumerate",
+                    })
+
+            yield json.dumps({
+                "status": "done",
+                "total_found": len(found_texts),
+            })
+        finally:
+            _active_solves.pop(solve_id, None)
+
+    return EventSourceResponse(event_generator(), headers={"X-Solve-Id": solve_id})
+
+
+@app.delete("/api/solve/{solve_id}")
+async def cancel_solve(solve_id: str):
+    if solve_id in _active_solves:
+        _active_solves[solve_id] = True
+        return {"status": "cancelled"}
+    return JSONResponse({"error": "solve not found"}, status_code=404)
+
+
+@app.post("/api/dictionary")
+async def upload_dictionary(data: dict):
+    name = data.get("name", "")
+    entries = data.get("entries", [])
+    if not name or not entries:
+        return JSONResponse({"error": "name and entries required"}, status_code=400)
+    _dictionary_store.add(name, entries)
+    return {"status": "ok", "count": len(entries)}
+
+
+@app.get("/api/dictionary")
+async def list_dictionaries():
+    return {"dictionaries": _dictionary_store.list()}
+
+
+@app.delete("/api/dictionary/{name}")
+async def delete_dictionary(name: str):
+    _dictionary_store.remove(name)
+    return {"status": "ok"}
+
+
+# Static files mount MUST be after all route definitions
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

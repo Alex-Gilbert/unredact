@@ -13,6 +13,7 @@ dependencies = [
     "Pillow>=11.0",
     "anthropic>=0.52",
     "numpy>=1.26",
+    "sse-starlette>=2.0",
 ]
 
 [project.optional-dependencies]
