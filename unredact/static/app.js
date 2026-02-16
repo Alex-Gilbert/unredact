@@ -1036,6 +1036,81 @@ function showAssocDetail(assocMatches, anchorEl) {
   setTimeout(() => document.addEventListener("click", closeOnOutside, true), 0);
 }
 
+// ── Manual redaction marking (Shift+drag) ──
+
+let drawDrag = null;
+
+canvas.addEventListener("mousedown", (e) => {
+  if (!e.shiftKey || e.button !== 0) return;
+
+  const rect = rightPanel.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const doc = screenToDoc(sx, sy);
+
+  drawDrag = { startX: doc.x, startY: doc.y };
+  e.stopPropagation();
+  e.preventDefault();
+}, { capture: true }); // capture so it fires before the regular hit-test handler
+
+window.addEventListener("mousemove", (e) => {
+  if (!drawDrag) return;
+
+  const rect = rightPanel.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const doc = screenToDoc(sx, sy);
+
+  // Re-render canvas with a preview rectangle
+  renderCanvas();
+  const x = Math.min(drawDrag.startX, doc.x);
+  const y = Math.min(drawDrag.startY, doc.y);
+  const w = Math.abs(doc.x - drawDrag.startX);
+  const h = Math.abs(doc.y - drawDrag.startY);
+
+  ctx.strokeStyle = "rgba(255, 100, 100, 0.8)";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 3]);
+  ctx.strokeRect(x, y, w, h);
+  ctx.setLineDash([]);
+});
+
+window.addEventListener("mouseup", (e) => {
+  if (!drawDrag) return;
+
+  const rect = rightPanel.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const doc = screenToDoc(sx, sy);
+
+  const x = Math.round(Math.min(drawDrag.startX, doc.x));
+  const y = Math.round(Math.min(drawDrag.startY, doc.y));
+  const w = Math.round(Math.abs(doc.x - drawDrag.startX));
+  const h = Math.round(Math.abs(doc.y - drawDrag.startY));
+
+  drawDrag = null;
+
+  // Only create if large enough
+  if (w < 20 || h < 5) {
+    renderCanvas();
+    return;
+  }
+
+  const id = "m" + Date.now().toString(36);
+  state.redactions[id] = {
+    id, x, y, w, h,
+    page: state.currentPage,
+    status: "unanalyzed",
+    analysis: null,
+    solution: null,
+    preview: null,
+  };
+
+  renderRedactionList();
+  renderCanvas();
+  activateRedaction(id);
+});
+
 // ── Utility ──
 
 function escapeHtml(text) {
