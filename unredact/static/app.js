@@ -19,8 +19,6 @@ const rightPanel = document.getElementById("right-panel");
 const docContainer = document.getElementById("doc-container");
 const popover = document.getElementById("popover");
 const popoverClose = document.getElementById("popover-close");
-const popoverContext = document.getElementById("popover-context");
-const popoverFontInfo = document.getElementById("popover-font-info");
 const solveCharset = document.getElementById("solve-charset");
 const solveTolerance = document.getElementById("solve-tolerance");
 const solveTolValue = document.getElementById("solve-tol-value");
@@ -53,6 +51,15 @@ const leftTextInput = document.getElementById("left-text-input");
 const rightTextInput = document.getElementById("right-text-input");
 const redactionMarker = document.getElementById("redaction-marker");
 const textReset = document.getElementById("text-reset");
+const toastContainer = document.getElementById("toast-container");
+
+function showToast(message, type = "info") {
+  const el = document.createElement("div");
+  el.className = `toast ${type}`;
+  el.textContent = message;
+  toastContainer.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
 
 // ── State ──
 
@@ -368,22 +375,6 @@ async function analyzeRedaction(id) {
 function openPopover(id) {
   const r = state.redactions[id];
   if (!r || !r.analysis) return;
-
-  const a = r.analysis;
-
-  // Context line
-  const segs = a.segments;
-  const leftText = segs.length > 0 ? segs[0].text : "";
-  const rightText = segs.length > 1 ? segs[1].text : "";
-  popoverContext.innerHTML = `<span class="ctx-left">${escapeHtml(leftText)}</span><span class="ctx-gap">\u2588\u2588\u2588</span><span class="ctx-right">${escapeHtml(rightText)}</span>`;
-
-  // Font info
-  const font = a.font;
-  popoverFontInfo.innerHTML = `
-    <span>${escapeHtml(font.name)} ${font.size}px</span>
-    <span class="font-score">score: ${font.score.toFixed(1)}</span>
-    <span class="gap-width">gap: ${Math.round(a.gap.w)}px</span>
-  `;
 
   // Pre-fill prefix/suffix from context
   solveFilterPrefix.value = "";
@@ -1319,7 +1310,7 @@ function showAssocDetail(assocMatches, anchorEl) {
 let drawDrag = null;
 
 canvas.addEventListener("mousedown", (e) => {
-  if (!e.shiftKey || e.button !== 0) return;
+  if (!e.shiftKey || e.ctrlKey || e.button !== 0) return;
 
   const rect = rightPanel.getBoundingClientRect();
   const sx = e.clientX - rect.left;
@@ -1387,6 +1378,50 @@ window.addEventListener("mouseup", (e) => {
   renderRedactionList();
   renderCanvas();
   activateRedaction(id);
+});
+
+// ── Ctrl+drag offset / Ctrl+Shift+drag gap width ──
+
+let ctrlDrag = null;
+
+canvas.addEventListener("mousedown", (e) => {
+  if (!e.ctrlKey || e.button !== 0) return;
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides) return;
+
+  ctrlDrag = {
+    startX: e.clientX,
+    startY: e.clientY,
+    startOffsetX: r.overrides.offsetX,
+    startOffsetY: r.overrides.offsetY,
+    startGapWidth: r.overrides.gapWidth,
+    widthMode: e.shiftKey,
+  };
+  e.stopPropagation();
+  e.preventDefault();
+}, { capture: true });
+
+window.addEventListener("mousemove", (e) => {
+  if (!ctrlDrag) return;
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides) return;
+
+  const dx = (e.clientX - ctrlDrag.startX) / state.zoom;
+  const dy = (e.clientY - ctrlDrag.startY) / state.zoom;
+
+  if (ctrlDrag.widthMode) {
+    r.overrides.gapWidth = Math.max(1, ctrlDrag.startGapWidth + dx);
+    gapValue.textContent = Math.round(r.overrides.gapWidth);
+  } else {
+    r.overrides.offsetX = ctrlDrag.startOffsetX + dx;
+    r.overrides.offsetY = ctrlDrag.startOffsetY + dy;
+    updatePosDisplay();
+  }
+  renderCanvas();
+});
+
+window.addEventListener("mouseup", () => {
+  if (ctrlDrag) ctrlDrag = null;
 });
 
 // ── Utility ──
