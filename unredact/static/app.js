@@ -39,11 +39,13 @@ const solveStop = document.getElementById("solve-stop");
 const solveStatus = document.getElementById("solve-status");
 const solveResults = document.getElementById("solve-results");
 const solveCharset = document.getElementById("solve-charset");
-const solveMinLen = document.getElementById("solve-min-len");
-const solveMaxLen = document.getElementById("solve-max-len");
 const solveTolerance = document.getElementById("solve-tolerance");
 const solveTolValue = document.getElementById("solve-tol-value");
 const solveMode = document.getElementById("solve-mode");
+const solveFilter = document.getElementById("solve-filter");
+const solveFilterPrefix = document.getElementById("solve-filter-prefix");
+const solveFilterSuffix = document.getElementById("solve-filter-suffix");
+const solveAccept = document.getElementById("solve-accept");
 
 // State
 const state = {
@@ -52,7 +54,7 @@ const state = {
   currentPage: 1,
   pageData: {},        // page -> {lines: [...]}
   selectedLine: null,  // index into current page's lines
-  lineOverrides: {},   // "page-lineIdx" -> {fontId, fontSize, segments: [{text, offsetX, offsetY}]}
+  lineOverrides: {},   // "page-lineIdx" -> {fontId, fontSize, segments: [{text, offsetX}], gapWidths: [px, ...], gapPreviews: [str|null, ...]}
   activeSegment: 0,    // which segment the d-pad / focus applies to
   fonts: [],           // [{name, id, available}]
   fontsReady: false,
@@ -60,6 +62,7 @@ const state = {
   zoom: 1,
   panX: 0,
   panY: 0,
+  associates: null,  // {names: {str: [...]}, persons: {str: {...}}}
 };
 
 // ── Font loading ──
@@ -95,6 +98,17 @@ async function loadFonts() {
   }
 }
 
+async function loadAssociates() {
+  try {
+    const resp = await fetch("/api/associates");
+    state.associates = await resp.json();
+    console.log(`Loaded ${Object.keys(state.associates.names).length} associate lookups`);
+  } catch (e) {
+    console.warn("Failed to load associates data:", e);
+    state.associates = { names: {}, persons: {} };
+  }
+}
+
 // ── Drag and drop ──
 
 dropZone.addEventListener("click", () => fileInput.click());
@@ -117,8 +131,9 @@ fileInput.addEventListener("change", () => {
 async function uploadFile(file) {
   uploadSection.innerHTML = '<p class="loading">Analyzing document...</p>';
 
-  // Start font loading in parallel with upload
+  // Start font + associates loading in parallel with upload
   const fontPromise = loadFonts();
+  const assocPromise = loadAssociates();
 
   const form = new FormData();
   form.append("file", file);
@@ -129,7 +144,7 @@ async function uploadFile(file) {
   state.pageCount = data.page_count;
   state.currentPage = 1;
 
-  await fontPromise; // ensure fonts are ready before rendering
+  await Promise.all([fontPromise, assocPromise]); // ensure both are ready before rendering
 
   uploadSection.hidden = true;
   viewerSection.hidden = false;
@@ -267,10 +282,17 @@ sizeUp.addEventListener("click", () => {
 function nudge(dx, dy) {
   if (state.selectedLine === null) return;
   const override = ensureOverride();
-  // X is per-segment, Y is shared across all segments
   if (dx !== 0) {
-    const seg = override.segments[state.activeSegment];
-    if (seg) seg.offsetX += dx;
+    if (state.activeSegment === 0) {
+      // First segment: nudge its position (line alignment)
+      override.segments[0].offsetX += dx;
+    } else {
+      // Any other segment: adjust the gap before it
+      const gapIdx = state.activeSegment - 1;
+      if (override.gapWidths[gapIdx] !== undefined) {
+        override.gapWidths[gapIdx] = Math.max(1, override.gapWidths[gapIdx] + dx);
+      }
+    }
   }
   if (dy !== 0) {
     override.offsetY = (override.offsetY || 0) + dy;
@@ -282,10 +304,18 @@ function nudge(dx, dy) {
 function updatePosDisplay() {
   const key = `${state.currentPage}-${state.selectedLine}`;
   const override = state.lineOverrides[key];
-  const seg = override?.segments?.[state.activeSegment];
-  const x = seg?.offsetX ?? 0;
   const y = override?.offsetY ?? 0;
-  posDisplay.textContent = `${x}, ${y}`;
+  if (state.activeSegment > 0) {
+    // Non-first segment: show gap before it
+    const gapIdx = state.activeSegment - 1;
+    const gw = override?.gapWidths?.[gapIdx] ?? 0;
+    posDisplay.textContent = `gap: ${gw}px, y: ${y}`;
+  } else {
+    // First segment: show offset
+    const seg = override?.segments?.[0];
+    const x = seg?.offsetX ?? 0;
+    posDisplay.textContent = `${x}, ${y}`;
+  }
 }
 
 posUp.addEventListener("click", () => nudge(0, -1));
@@ -295,8 +325,17 @@ posRight.addEventListener("click", () => nudge(1, 0));
 posReset.addEventListener("click", () => {
   if (state.selectedLine === null) return;
   const override = ensureOverride();
-  const seg = override.segments[state.activeSegment];
-  if (seg) seg.offsetX = 0;
+  if (state.activeSegment > 0) {
+    // Non-first segment: reset gap before it to default (fontSize * 2)
+    const gapIdx = state.activeSegment - 1;
+    if (override.gapWidths[gapIdx] !== undefined) {
+      override.gapWidths[gapIdx] = override.fontSize * 2;
+    }
+  } else {
+    // First segment: reset offset
+    const seg = override.segments[0];
+    if (seg) seg.offsetX = 0;
+  }
   override.offsetY = 0;
   updatePosDisplay();
   renderOverlay();
@@ -323,6 +362,8 @@ function ensureOverride() {
       fontSize: line.font.size,
       offsetY: 0,
       segments: [{ text: line.text, offsetX: 0 }],
+      gapWidths: [],  // one entry per gap between segments
+      gapPreviews: [],  // one entry per gap: null or preview text
     };
   }
   return state.lineOverrides[key];
@@ -344,13 +385,17 @@ function renderSegmentInputs() {
   // If no override yet, show single input with original text
   const segs = segments || [{ text: line.text, offsetX: 0, offsetY: 0 }];
 
+  const key = `${state.currentPage}-${state.selectedLine}`;
+  const overrideForSegs = state.lineOverrides[key];
+
   segs.forEach((seg, i) => {
     if (i > 0) {
-      // Redaction marker between segments
+      // Redaction marker between segments — show preview text if set
+      const preview = overrideForSegs?.gapPreviews?.[i - 1] ?? null;
       const marker = document.createElement("span");
-      marker.className = "redaction-marker";
-      marker.textContent = "???";
-      marker.title = "Redaction gap";
+      marker.className = preview ? "redaction-marker preview" : "redaction-marker";
+      marker.textContent = preview || "???";
+      marker.title = preview ? `Preview: ${preview}` : "Redaction gap";
       segmentInputs.appendChild(marker);
     }
 
@@ -411,6 +456,12 @@ function splitSegmentAtCursor(segIdx, inputEl) {
     { text: after, offsetX: 0 },
   );
 
+  // Initialize gap width and preview for the new gap
+  const override = ensureOverride();
+  const fontSize = override.fontSize;
+  override.gapWidths.splice(segIdx, 0, fontSize * 2);
+  override.gapPreviews.splice(segIdx, 0, null);
+
   // Focus the new segment after the gap
   state.activeSegment = segIdx + 1;
   renderSegmentInputs();
@@ -434,7 +485,14 @@ function updateLineListPreview() {
   const line = pd.lines[state.selectedLine];
   const textEl = items[state.selectedLine].querySelector(".line-text");
   if (segs && segs.length > 1) {
-    textEl.textContent = segs.map((s) => s.text).join(" [???] ");
+    const key = `${state.currentPage}-${state.selectedLine}`;
+    const ovr = state.lineOverrides[key];
+    const parts = segs.map((s, i) => {
+      if (i === 0) return s.text;
+      const preview = ovr?.gapPreviews?.[i - 1];
+      return (preview ? `[${preview}]` : "[???]") + s.text;
+    });
+    textEl.textContent = parts.join(" ");
   } else if (segs) {
     textEl.textContent = segs[0].text;
   } else {
@@ -450,6 +508,8 @@ textReset.addEventListener("click", () => {
     const pd = state.pageData[state.currentPage];
     const line = pd.lines[state.selectedLine];
     override.segments = [{ text: line.text, offsetX: 0 }];
+    override.gapWidths = [];
+    override.gapPreviews = [];
     override.offsetY = 0;
   }
   state.activeSegment = 0;
@@ -533,32 +593,46 @@ function renderOverlay() {
     const textWidth = ctx.measureText(seg.text).width;
     cursorX = sx + textWidth;
 
-    // If there's a next segment, draw the redaction gap
+    // If there's a next segment, draw the redaction gap or preview
     if (i < segments.length - 1) {
-      const nextSeg = segments[i + 1];
-      // The gap extends from end of this segment to start of next
-      // Next segment starts at cursorX + nextSeg.offsetX
       const gapStart = cursorX;
-      const gapEnd = cursorX + nextSeg.offsetX;
-      const gapWidth = Math.max(gapEnd - gapStart, fontSize * 2); // at least 2em
+      const gapWidth = override?.gapWidths?.[i] ?? fontSize * 2;
+      const preview = override?.gapPreviews?.[i] ?? null;
 
-      // Draw redaction indicator — full line height, strong red
-      const pad = fontSize * 0.15;
-      ctx.fillStyle = "rgba(211, 47, 47, 0.5)";
-      ctx.fillRect(gapStart, line.y - pad, gapWidth, line.h + pad * 2);
-      ctx.strokeStyle = "rgba(211, 47, 47, 0.8)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(gapStart, line.y - pad, gapWidth, line.h + pad * 2);
+      if (preview) {
+        // Draw preview text in the gap area
+        ctx.font = fontStr;
+        ctx.fillStyle = "rgba(255, 200, 0, 0.85)";
+        ctx.fillText(preview, gapStart, line.y + sharedY);
+        const previewWidth = ctx.measureText(preview).width;
 
-      // Draw "?" centered in the gap at the same font size
-      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-      ctx.font = `bold ${fontSize}px sans-serif`;
-      const qWidth = ctx.measureText("?").width;
-      ctx.fillText("?", gapStart + (gapWidth - qWidth) / 2, line.y);
-      ctx.font = fontStr; // restore
+        // Subtle highlight behind preview text
+        const pad = fontSize * 0.1;
+        ctx.fillStyle = "rgba(255, 200, 0, 0.12)";
+        ctx.fillRect(gapStart, line.y - pad, gapWidth, line.h + pad * 2);
 
-      // Advance cursor past the gap
-      cursorX = gapStart + gapWidth;
+        // Advance cursor past the original gap width (keeps alignment stable)
+        cursorX = gapStart + gapWidth;
+      } else {
+        // Draw redaction indicator — full line height, strong red
+        const pad = fontSize * 0.15;
+        ctx.fillStyle = "rgba(211, 47, 47, 0.5)";
+        ctx.fillRect(gapStart, line.y - pad, gapWidth, line.h + pad * 2);
+        ctx.strokeStyle = "rgba(211, 47, 47, 0.8)";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(gapStart, line.y - pad, gapWidth, line.h + pad * 2);
+
+        // Draw gap width label centered in the gap
+        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.font = `bold ${Math.min(fontSize * 0.5, 16)}px sans-serif`;
+        const label = `${Math.round(gapWidth)}px`;
+        const labelWidth = ctx.measureText(label).width;
+        ctx.fillText(label, gapStart + (gapWidth - labelWidth) / 2, line.y + line.h * 0.3);
+        ctx.font = fontStr; // restore
+
+        // Advance cursor past the gap
+        cursorX = gapStart + gapWidth;
+      }
     }
   }
 }
@@ -640,7 +714,7 @@ zoomFitBtn.addEventListener("click", zoomToFit);
 
 // Mouse-wheel zoom toward cursor
 rightPanel.addEventListener("wheel", (e) => {
-  if (fontControls.contains(e.target) || textEditBar.contains(e.target)) return;
+  if (fontControls.contains(e.target) || textEditBar.contains(e.target) || solvePanel.contains(e.target)) return;
   e.preventDefault();
   const rect = rightPanel.getBoundingClientRect();
   const sx = e.clientX - rect.left;
@@ -652,7 +726,7 @@ rightPanel.addEventListener("wheel", (e) => {
 
 // Double-click to zoom in
 rightPanel.addEventListener("dblclick", (e) => {
-  if (fontControls.contains(e.target) || textEditBar.contains(e.target)) return;
+  if (fontControls.contains(e.target) || textEditBar.contains(e.target) || solvePanel.contains(e.target)) return;
   const rect = rightPanel.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
@@ -665,8 +739,8 @@ let drag = null;
 
 rightPanel.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
-  // Don't start panning when interacting with the font controls toolbar
-  if (fontControls.contains(e.target) || textEditBar.contains(e.target)) return;
+  // Don't start panning when interacting with toolbars or solve panel
+  if (fontControls.contains(e.target) || textEditBar.contains(e.target) || solvePanel.contains(e.target)) return;
   drag = {
     startX: e.clientX,
     startY: e.clientY,
@@ -761,6 +835,7 @@ docImage.addEventListener("load", () => {
 // ── Solve panel ──
 
 let activeEventSource = null;
+let activeSolveGapIdx = null;
 
 function updateSolveButton() {
   const segs = getSegments();
@@ -769,6 +844,7 @@ function updateSolveButton() {
 
 solveBtn.addEventListener("click", () => {
   solvePanel.hidden = false;
+  solveAccept.hidden = true;
 });
 
 solveClose.addEventListener("click", () => {
@@ -779,6 +855,49 @@ solveClose.addEventListener("click", () => {
 solveTolerance.addEventListener("input", () => {
   solveTolValue.textContent = solveTolerance.value;
 });
+
+// ── Associate matching ──
+
+const MATCH_TYPE_WEIGHTS = {
+  full: 4,
+  nickname_full: 3,
+  initial_last: 2,
+  last: 2,
+  first: 1,
+  nickname: 1,
+};
+
+function matchAssociates(text) {
+  if (!state.associates?.names) return [];
+  const key = text.toLowerCase().trim();
+  const matches = state.associates.names[key];
+  if (!matches) return [];
+
+  return matches.map(m => {
+    const person = state.associates.persons[m.person_id];
+    const weight = MATCH_TYPE_WEIGHTS[m.match_type] || 1;
+    return {
+      personId: m.person_id,
+      personName: person?.name || "Unknown",
+      category: person?.category || "other",
+      tier: m.tier,
+      matchType: m.match_type,
+      score: m.tier * weight,
+    };
+  }).sort((a, b) => b.score - a.score);
+}
+
+function tierBadgeClass(tier) {
+  if (tier === 1) return "tier-1";
+  if (tier === 2) return "tier-2";
+  return "tier-3";
+}
+
+function tierLabel(tier) {
+  if (tier === 1) return "T1";
+  if (tier === 2) return "T2";
+  return "T3";
+}
 
 solveStart.addEventListener("click", startSolve);
 solveStop.addEventListener("click", stopSolve);
@@ -795,33 +914,28 @@ function startSolve() {
   const fontSize = override ? override.fontSize : line.font.size;
   const fontName = state.fonts.find(f => f.id === fontId)?.name || line.font.name;
 
-  // Find the gap after the active segment
-  const gapIdx = state.activeSegment;
-  if (gapIdx >= segs.length - 1) return;
+  // Find the gap before the active segment
+  if (state.activeSegment === 0) return; // no gap before first segment
+  const gapIdx = state.activeSegment - 1;
 
-  // Compute gap width using canvas measurement
-  const fontStr = `${fontSize}px "${fontName}"`;
-  ctx.font = fontStr;
+  // Get gap width from the override's gapWidths array
+  const gapWidth = override?.gapWidths?.[gapIdx] ?? fontSize * 2;
 
-  // Calculate gap width the same way renderOverlay does
-  let cursorX = 0;
-  for (let i = 0; i <= gapIdx; i++) {
-    cursorX += segs[i].offsetX + ctx.measureText(segs[i].text).width;
-  }
-  const gapStart = cursorX;
-  const nextSeg = segs[gapIdx + 1];
-  const gapEnd = cursorX + nextSeg.offsetX;
-  const gapWidth = Math.max(gapEnd - gapStart, fontSize * 2);
+  // Context characters: segment before the gap, segment after the gap
+  const segBefore = segs[gapIdx];
+  const segAfter = segs[gapIdx + 1];
+  const leftCtx = segBefore.text.length > 0 ? segBefore.text[segBefore.text.length - 1] : "";
+  const rightCtx = segAfter.text.length > 0 ? segAfter.text[0] : "";
 
-  // Context characters
-  const leftCtx = segs[gapIdx].text.length > 0 ? segs[gapIdx].text[segs[gapIdx].text.length - 1] : "";
-  const rightCtx = nextSeg.text.length > 0 ? nextSeg.text[0] : "";
+  // Track which gap we're solving
+  activeSolveGapIdx = gapIdx;
 
   // Clear previous results
   solveResults.innerHTML = "";
   solveStatus.textContent = "Starting...";
   solveStart.hidden = true;
   solveStop.hidden = false;
+  solveAccept.hidden = true;
 
   const body = {
     font_id: fontId,
@@ -832,10 +946,11 @@ function startSolve() {
     right_context: rightCtx,
     hints: {
       charset: solveCharset.value,
-      min_length: parseInt(solveMinLen.value),
-      max_length: parseInt(solveMaxLen.value),
     },
     mode: solveMode.value,
+    word_filter: solveFilter.value,
+    filter_prefix: solveFilterPrefix.value,
+    filter_suffix: solveFilterSuffix.value,
   };
 
   const abortController = new AbortController();
@@ -885,22 +1000,51 @@ function startSolve() {
 
 function handleSolveEvent(data, gapIdx) {
   if (data.status === "match") {
+    const assocMatches = matchAssociates(data.text);
+    const topMatch = assocMatches.length > 0 ? assocMatches[0] : null;
+
     const div = document.createElement("div");
     div.className = "solve-result";
+    if (topMatch) div.dataset.assocScore = topMatch.score;
+
+    let badgeHtml = "";
+    if (topMatch) {
+      const cls = tierBadgeClass(topMatch.tier);
+      const tooltip = `${topMatch.personName} (${topMatch.category}) — ${topMatch.matchType} match`;
+      badgeHtml = `<span class="assoc-badge ${cls}" title="${escapeHtml(tooltip)}">${tierLabel(topMatch.tier)}</span>`;
+    }
+
     div.innerHTML = `
+      ${badgeHtml}
       <span class="result-text">${escapeHtml(data.text)}</span>
       <span class="result-error">${data.error_px.toFixed(1)}px ${data.source || ""}</span>
     `;
     div.addEventListener("click", () => {
-      const segs = ensureSegments();
-      // Insert text into gap: add a new segment between gapIdx and gapIdx+1
-      segs.splice(gapIdx + 1, 0, { text: data.text, offsetX: 0 });
-      state.activeSegment = gapIdx + 1;
-      renderSegmentInputs();
+      const override = ensureOverride();
+      override.gapPreviews[gapIdx] = data.text;
       renderOverlay();
-      updateLineListPreview();
+      renderSegmentInputs();
+      solveResults.querySelectorAll(".solve-result").forEach(el => el.classList.remove("active"));
+      div.classList.add("active");
+      solveAccept.hidden = false;
     });
-    solveResults.appendChild(div);
+
+    // Insert sorted: associates first, by score descending
+    if (topMatch) {
+      let inserted = false;
+      for (const existing of solveResults.children) {
+        const existingScore = parseFloat(existing.dataset.assocScore || "0");
+        if (topMatch.score > existingScore) {
+          solveResults.insertBefore(div, existing);
+          inserted = true;
+          break;
+        }
+      }
+      if (!inserted) solveResults.appendChild(div);
+    } else {
+      solveResults.appendChild(div);
+    }
+
     solveStatus.textContent = `Found ${solveResults.children.length} matches`;
   } else if (data.status === "running") {
     solveStatus.textContent = `Checked ${data.checked}, found ${data.found}...`;
@@ -920,6 +1064,49 @@ function stopSolve() {
   solveStart.hidden = false;
   solveStop.hidden = true;
   solveStatus.textContent = "Stopped.";
+}
+
+solveAccept.addEventListener("click", acceptSolution);
+
+function acceptSolution() {
+  if (state.selectedLine === null || activeSolveGapIdx === null) return;
+  const key = `${state.currentPage}-${state.selectedLine}`;
+  const override = state.lineOverrides[key];
+  if (!override) return;
+
+  const gapIdx = activeSolveGapIdx;
+  const previewText = override.gapPreviews[gapIdx];
+  if (!previewText) return;
+
+  // Merge: segments[gapIdx].text + previewText + segments[gapIdx+1].text → single segment
+  const leftSeg = override.segments[gapIdx];
+  const rightSeg = override.segments[gapIdx + 1];
+  leftSeg.text = leftSeg.text + previewText + rightSeg.text;
+
+  // Remove the right segment
+  override.segments.splice(gapIdx + 1, 1);
+
+  // Remove the gap entry
+  override.gapWidths.splice(gapIdx, 1);
+  override.gapPreviews.splice(gapIdx, 1);
+
+  // Reset active segment to the merged segment
+  state.activeSegment = gapIdx;
+  activeSolveGapIdx = null;
+
+  // Stop any running solve and close panel
+  stopSolve();
+  solvePanel.hidden = true;
+  solveResults.innerHTML = "";
+  solveStatus.textContent = "";
+  solveAccept.hidden = true;
+
+  // Re-render everything
+  renderSegmentInputs();
+  updatePosDisplay();
+  renderOverlay();
+  updateLineListPreview();
+  updateSolveButton();
 }
 
 function escapeHtml(text) {

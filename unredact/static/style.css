@@ -335,6 +335,11 @@ main {
   letter-spacing: 0.05em;
 }
 
+.redaction-marker.preview {
+  background: #b8860b;
+  color: #ffe082;
+}
+
 .seg-hint {
   font-size: 0.6rem;
   color: #666;
@@ -354,14 +359,16 @@ main {
   position: absolute;
   top: 80px;
   right: 12px;
+  bottom: 52px;
   width: 300px;
-  max-height: calc(100% - 100px);
+  display: flex;
+  flex-direction: column;
   background: rgba(20, 20, 40, 0.95);
   border: 1px solid #333;
   border-radius: 8px;
   padding: 12px;
   z-index: 30;
-  overflow-y: auto;
+  overflow: hidden;
   backdrop-filter: blur(10px);
 }
 
@@ -370,6 +377,7 @@ main {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .solve-title {
@@ -382,6 +390,7 @@ main {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .solve-controls label {
@@ -401,15 +410,13 @@ main {
   padding: 2px 4px;
 }
 
-.solve-num {
-  width: 50px;
-}
 
 .solve-actions {
   display: flex;
   gap: 8px;
   align-items: center;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .solve-btn {
@@ -426,6 +433,15 @@ main {
   background: #00ff8a;
 }
 
+.solve-btn.accept {
+  background: #ffc800;
+  color: #000;
+}
+
+.solve-btn.accept:hover {
+  background: #ffda44;
+}
+
 #solve-status {
   font-size: 0.75rem;
   color: #aaa;
@@ -435,6 +451,9 @@ main {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .solve-result {
@@ -454,6 +473,11 @@ main {
   background: rgba(0, 212, 116, 0.2);
 }
 
+.solve-result.active {
+  border-color: #ffc800;
+  background: rgba(255, 200, 0, 0.2);
+}
+
 .solve-result .result-text {
   color: #00d474;
 }
@@ -461,4 +485,31 @@ main {
 .solve-result .result-error {
   color: #888;
   font-size: 0.75rem;
+}
+
+/* Associate badges */
+.assoc-badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: default;
+  margin-right: 4px;
+}
+
+.assoc-badge.tier-1 {
+  background: #d32f2f;
+  color: #fff;
+}
+
+.assoc-badge.tier-2 {
+  background: #e65100;
+  color: #fff;
+}
+
+.assoc-badge.tier-3 {
+  background: #f9a825;
+  color: #000;
 }
