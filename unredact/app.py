@@ -90,10 +90,9 @@ async def upload_pdf(file: UploadFile):
 
     page_data = {}
     for i, page_img in enumerate(pages, start=1):
-        redactions = detect_redactions(page_img)
         page_data[i] = {
             "original": page_img,
-            "redactions": redactions,
+            "redactions": [],
         }
 
     _docs[doc_id] = {
