@@ -909,6 +909,56 @@ function tierLabel(tier) {
   return "T3";
 }
 
+function tierDescription(tier) {
+  if (tier === 1) return "Flight logs — traveled with Epstein";
+  if (tier === 2) return "Inner circle — staff, financial, or frequently named";
+  return "Named in Epstein case files";
+}
+
+function showAssocDetail(assocMatches, anchorEl) {
+  // Remove any existing popup
+  const old = document.getElementById("assoc-detail");
+  if (old) old.remove();
+
+  const popup = document.createElement("div");
+  popup.id = "assoc-detail";
+
+  let html = '<div class="assoc-detail-header">Possible associates<button class="assoc-detail-close">X</button></div>';
+  html += '<div class="assoc-detail-list">';
+
+  for (const m of assocMatches) {
+    const cls = tierBadgeClass(m.tier);
+    html += `<div class="assoc-detail-item">
+      <span class="assoc-badge ${cls}">${tierLabel(m.tier)}</span>
+      <div class="assoc-detail-info">
+        <div class="assoc-detail-name">${escapeHtml(m.personName)}</div>
+        <div class="assoc-detail-meta">${escapeHtml(tierDescription(m.tier))} · ${escapeHtml(m.category)} · matched on ${escapeHtml(m.matchType)}</div>
+      </div>
+    </div>`;
+  }
+
+  html += '</div>';
+  popup.innerHTML = html;
+
+  // Position near the badge
+  solvePanel.appendChild(popup);
+
+  // Close handlers
+  popup.querySelector(".assoc-detail-close").addEventListener("click", (e) => {
+    e.stopPropagation();
+    popup.remove();
+  });
+
+  // Close on outside click
+  const closeOnOutside = (e) => {
+    if (!popup.contains(e.target)) {
+      popup.remove();
+      document.removeEventListener("click", closeOnOutside, true);
+    }
+  };
+  setTimeout(() => document.addEventListener("click", closeOnOutside, true), 0);
+}
+
 solveStart.addEventListener("click", startSolve);
 solveStop.addEventListener("click", stopSolve);
 
@@ -1020,18 +1070,23 @@ function handleSolveEvent(data, gapIdx) {
       div.dataset.assocScore = topMatch.score;
     }
 
-    let badgeHtml = "";
-    if (topMatch) {
-      const cls = tierBadgeClass(topMatch.tier);
-      const tooltip = `${topMatch.personName} (${topMatch.category}) — ${topMatch.matchType} match`;
-      badgeHtml = `<span class="assoc-badge ${cls}" title="${escapeHtml(tooltip)}">${tierLabel(topMatch.tier)}</span>`;
-    }
-
     div.innerHTML = `
-      ${badgeHtml}
       <span class="result-text">${escapeHtml(data.text)}</span>
       <span class="result-error">${data.error_px.toFixed(1)}px ${data.source || ""}</span>
     `;
+
+    if (assocMatches.length > 0) {
+      const badge = document.createElement("button");
+      badge.className = `assoc-badge ${tierBadgeClass(topMatch.tier)}`;
+      badge.textContent = tierLabel(topMatch.tier);
+      badge.title = "Click for details";
+      badge.addEventListener("click", (e) => {
+        e.stopPropagation();
+        showAssocDetail(assocMatches, badge);
+      });
+      div.prepend(badge);
+    }
+
     div.addEventListener("click", () => {
       const override = ensureOverride();
       override.gapPreviews[gapIdx] = data.text;
