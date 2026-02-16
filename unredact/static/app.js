@@ -33,6 +33,26 @@ const solveStop = document.getElementById("solve-stop");
 const solveAccept = document.getElementById("solve-accept");
 const solveStatus = document.getElementById("solve-status");
 const solveResults = document.getElementById("solve-results");
+const fontToolbar = document.getElementById("font-toolbar");
+const fontSelect = document.getElementById("font-select");
+const sizeSlider = document.getElementById("size-slider");
+const sizeValue = document.getElementById("size-value");
+const sizeDown = document.getElementById("size-down");
+const sizeUp = document.getElementById("size-up");
+const posUp = document.getElementById("pos-up");
+const posDown = document.getElementById("pos-down");
+const posLeft = document.getElementById("pos-left");
+const posRight = document.getElementById("pos-right");
+const posReset = document.getElementById("pos-reset");
+const posDisplay = document.getElementById("pos-display");
+const gapDown = document.getElementById("gap-down");
+const gapUp = document.getElementById("gap-up");
+const gapValue = document.getElementById("gap-value");
+const textEditBar = document.getElementById("text-edit-bar");
+const leftTextInput = document.getElementById("left-text-input");
+const rightTextInput = document.getElementById("right-text-input");
+const redactionMarker = document.getElementById("redaction-marker");
+const textReset = document.getElementById("text-reset");
 
 // ── State ──
 
@@ -71,6 +91,14 @@ async function loadFonts() {
 
   await Promise.all(promises);
   state.fontsReady = true;
+
+  fontSelect.innerHTML = "";
+  for (const f of state.fonts.filter(f => f.available)) {
+    const opt = document.createElement("option");
+    opt.value = f.id;
+    opt.textContent = f.name;
+    fontSelect.appendChild(opt);
+  }
 }
 
 async function loadAssociates() {
@@ -312,6 +340,15 @@ async function analyzeRedaction(id) {
     const data = await resp.json();
     r.status = "analyzed";
     r.analysis = data;
+    r.overrides = {
+      fontId: data.font.id,
+      fontSize: data.font.size,
+      offsetX: data.offset_x || 0,
+      offsetY: data.offset_y || 0,
+      gapWidth: data.gap.w,
+      leftText: data.segments.length > 0 ? data.segments[0].text : "",
+      rightText: data.segments.length > 1 ? data.segments[1].text : "",
+    };
     renderRedactionList();
     renderCanvas();
 
@@ -360,14 +397,121 @@ function openPopover(id) {
   solveAccept.hidden = !!(r.preview === null);
 
   popover.hidden = false;
+
+  fontToolbar.hidden = false;
+  fontSelect.value = r.overrides.fontId;
+  sizeSlider.value = r.overrides.fontSize;
+  sizeValue.textContent = r.overrides.fontSize;
+  gapValue.textContent = Math.round(r.overrides.gapWidth);
+  updatePosDisplay();
+
+  textEditBar.hidden = false;
+  leftTextInput.value = r.overrides.leftText;
+  rightTextInput.value = r.overrides.rightText;
+  redactionMarker.textContent = r.preview || "???";
+  redactionMarker.className = r.preview ? "redaction-marker preview" : "redaction-marker";
 }
 
 function closePopover() {
   popover.hidden = true;
+  fontToolbar.hidden = true;
+  textEditBar.hidden = true;
   stopSolve();
 }
 
 popoverClose.addEventListener("click", closePopover);
+
+fontSelect.addEventListener("change", () => {
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides) return;
+  r.overrides.fontId = fontSelect.value;
+  renderCanvas();
+});
+
+sizeSlider.addEventListener("input", () => {
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides) return;
+  r.overrides.fontSize = parseInt(sizeSlider.value);
+  sizeValue.textContent = sizeSlider.value;
+  renderCanvas();
+});
+
+sizeDown.addEventListener("click", () => adjustSize(-1));
+sizeUp.addEventListener("click", () => adjustSize(1));
+
+function adjustSize(delta) {
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides) return;
+  r.overrides.fontSize = Math.max(8, Math.min(120, r.overrides.fontSize + delta));
+  sizeSlider.value = r.overrides.fontSize;
+  sizeValue.textContent = r.overrides.fontSize;
+  renderCanvas();
+}
+
+posUp.addEventListener("click", () => nudge(0, -1));
+posDown.addEventListener("click", () => nudge(0, 1));
+posLeft.addEventListener("click", () => nudge(-1, 0));
+posRight.addEventListener("click", () => nudge(1, 0));
+
+function nudge(dx, dy) {
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides) return;
+  r.overrides.offsetX += dx;
+  r.overrides.offsetY += dy;
+  updatePosDisplay();
+  renderCanvas();
+}
+
+function updatePosDisplay() {
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides) return;
+  posDisplay.textContent = `${Math.round(r.overrides.offsetX)}, ${Math.round(r.overrides.offsetY)}`;
+}
+
+posReset.addEventListener("click", () => {
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides || !r.analysis) return;
+  r.overrides.offsetX = r.analysis.offset_x || 0;
+  r.overrides.offsetY = r.analysis.offset_y || 0;
+  updatePosDisplay();
+  renderCanvas();
+});
+
+gapDown.addEventListener("click", () => adjustGap(-1));
+gapUp.addEventListener("click", () => adjustGap(1));
+
+function adjustGap(delta) {
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides) return;
+  r.overrides.gapWidth = Math.max(1, r.overrides.gapWidth + delta);
+  gapValue.textContent = Math.round(r.overrides.gapWidth);
+  renderCanvas();
+}
+
+leftTextInput.addEventListener("input", () => {
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides) return;
+  r.overrides.leftText = leftTextInput.value;
+  renderCanvas();
+});
+
+rightTextInput.addEventListener("input", () => {
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides) return;
+  r.overrides.rightText = rightTextInput.value;
+  renderCanvas();
+});
+
+textReset.addEventListener("click", () => {
+  const r = state.redactions[state.activeRedaction];
+  if (!r?.overrides || !r.analysis) return;
+  const a = r.analysis;
+  r.overrides.leftText = a.segments.length > 0 ? a.segments[0].text : "";
+  r.overrides.rightText = a.segments.length > 1 ? a.segments[1].text : "";
+  leftTextInput.value = r.overrides.leftText;
+  rightTextInput.value = r.overrides.rightText;
+  renderCanvas();
+});
 
 solveTolerance.addEventListener("input", () => {
   solveTolValue.textContent = solveTolerance.value;
@@ -424,74 +568,205 @@ function drawRedactionUnanalyzed(r, isActive) {
 }
 
 function drawRedactionAnalyzed(r, isActive) {
-  const alpha = isActive ? 0.35 : 0.2;
-  const borderAlpha = isActive ? 0.9 : 0.5;
+  if (!isActive) {
+    // Non-active: just blue box like before
+    drawRedactionUnanalyzed(r, false);
+    return;
+  }
 
-  ctx.fillStyle = `rgba(66, 133, 244, ${alpha})`;
-  ctx.fillRect(r.x, r.y, r.w, r.h);
+  // Active: render green overlay with segments and gap
+  const a = r.analysis;
+  const o = r.overrides || {};
+  const fontName = state.fonts.find(f => f.id === (o.fontId ?? a.font.id))?.name ?? a.font.name;
+  const fontSize = o.fontSize ?? a.font.size;
+  const fontStr = `${fontSize}px "${fontName}"`;
+  const gapW = o.gapWidth ?? a.gap.w;
 
-  ctx.strokeStyle = `rgba(66, 133, 244, ${borderAlpha})`;
-  ctx.lineWidth = isActive ? 2.5 : 1.5;
-  ctx.strokeRect(r.x, r.y, r.w, r.h);
+  const startX = a.line.x + (o.offsetX ?? 0);
+  const startY = a.line.y + (o.offsetY ?? 0);
 
-  // Draw a small "?" label centered in the redaction
-  const labelSize = Math.min(r.h * 0.5, 18);
-  ctx.fillStyle = `rgba(255, 255, 255, ${isActive ? 0.8 : 0.5})`;
-  ctx.font = `bold ${labelSize}px sans-serif`;
-  ctx.textBaseline = "middle";
-  const label = "?";
-  const lw = ctx.measureText(label).width;
-  ctx.fillText(label, r.x + (r.w - lw) / 2, r.y + r.h / 2);
+  ctx.font = fontStr;
+  ctx.textBaseline = "top";
+
+  let cursorX = startX;
+
+  // Draw left segment in green
+  const leftText = o.leftText ?? "";
+  if (leftText) {
+    ctx.fillStyle = "rgba(0, 200, 0, 0.7)";
+    ctx.fillText(leftText, cursorX, startY);
+    cursorX += ctx.measureText(leftText).width;
+  }
+
+  // Draw redaction gap as red box
+  const pad = fontSize * 0.15;
+  ctx.fillStyle = "rgba(211, 47, 47, 0.5)";
+  ctx.fillRect(cursorX, startY - pad, gapW, fontSize + pad * 2);
+  ctx.strokeStyle = "rgba(211, 47, 47, 0.8)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(cursorX, startY - pad, gapW, fontSize + pad * 2);
+
+  // Gap width label
+  ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+  ctx.font = `bold ${Math.min(fontSize * 0.5, 16)}px sans-serif`;
+  const label = `${Math.round(gapW)}px`;
+  const labelW = ctx.measureText(label).width;
+  ctx.fillText(label, cursorX + (gapW - labelW) / 2, startY + fontSize * 0.3);
+  ctx.font = fontStr; // restore
+
+  cursorX += gapW;
+
+  // Draw right segment in green
+  const rightText = o.rightText ?? "";
+  if (rightText) {
+    ctx.fillStyle = "rgba(0, 200, 0, 0.7)";
+    ctx.fillText(rightText, cursorX, startY);
+  }
+
+  // Draw bounding box for the original line area
+  ctx.strokeStyle = "rgba(0, 200, 0, 0.3)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(a.line.x, a.line.y, a.line.w, a.line.h);
 }
 
 function drawRedactionPreview(r, isActive) {
   if (!r.analysis) return;
   const a = r.analysis;
-  const font = a.font;
-  const fontName = font.name;
-  const fontSize = font.size;
+  const o = r.overrides || {};
+  const fontName = state.fonts.find(f => f.id === (o.fontId ?? a.font.id))?.name ?? a.font.name;
+  const fontSize = o.fontSize ?? a.font.size;
   const fontStr = `${fontSize}px "${fontName}"`;
+  const gapW = o.gapWidth ?? a.gap.w;
 
-  // Yellow highlight behind the gap area
-  const pad = fontSize * 0.1;
-  ctx.fillStyle = isActive ? "rgba(255, 200, 0, 0.2)" : "rgba(255, 200, 0, 0.12)";
-  ctx.fillRect(a.gap.x, r.y - pad, a.gap.w, r.h + pad * 2);
+  if (isActive) {
+    // Active: draw left green text, yellow gap with preview text, right green text
+    const startX = a.line.x + (o.offsetX ?? 0);
+    const startY = a.line.y + (o.offsetY ?? 0);
 
-  // Yellow border
-  ctx.strokeStyle = isActive ? "rgba(255, 200, 0, 0.8)" : "rgba(255, 200, 0, 0.5)";
-  ctx.lineWidth = isActive ? 2 : 1;
-  ctx.strokeRect(a.gap.x, r.y - pad, a.gap.w, r.h + pad * 2);
+    ctx.font = fontStr;
+    ctx.textBaseline = "top";
 
-  // Draw preview text
-  ctx.font = fontStr;
-  ctx.textBaseline = "top";
-  ctx.fillStyle = "rgba(255, 200, 0, 0.9)";
-  ctx.fillText(r.preview, a.gap.x, a.line.y);
+    let cursorX = startX;
+
+    // Draw left segment in green
+    const leftText = o.leftText ?? "";
+    if (leftText) {
+      ctx.fillStyle = "rgba(0, 200, 0, 0.7)";
+      ctx.fillText(leftText, cursorX, startY);
+      cursorX += ctx.measureText(leftText).width;
+    }
+
+    // Draw yellow gap with preview text
+    const pad = fontSize * 0.15;
+    ctx.fillStyle = "rgba(255, 200, 0, 0.2)";
+    ctx.fillRect(cursorX, startY - pad, gapW, fontSize + pad * 2);
+    ctx.strokeStyle = "rgba(255, 200, 0, 0.8)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cursorX, startY - pad, gapW, fontSize + pad * 2);
+
+    // Preview text
+    ctx.fillStyle = "rgba(255, 200, 0, 0.9)";
+    ctx.font = fontStr;
+    ctx.fillText(r.preview, cursorX, startY);
+
+    cursorX += gapW;
+
+    // Draw right segment in green
+    const rightText = o.rightText ?? "";
+    if (rightText) {
+      ctx.fillStyle = "rgba(0, 200, 0, 0.7)";
+      ctx.fillText(rightText, cursorX, startY);
+    }
+
+    // Draw bounding box for the original line area
+    ctx.strokeStyle = "rgba(0, 200, 0, 0.3)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(a.line.x, a.line.y, a.line.w, a.line.h);
+  } else {
+    // Non-active: original behavior using gap position
+    const pad = fontSize * 0.1;
+    ctx.fillStyle = "rgba(255, 200, 0, 0.12)";
+    ctx.fillRect(a.gap.x, r.y - pad, gapW, r.h + pad * 2);
+
+    ctx.strokeStyle = "rgba(255, 200, 0, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(a.gap.x, r.y - pad, gapW, r.h + pad * 2);
+
+    ctx.font = fontStr;
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(255, 200, 0, 0.9)";
+    ctx.fillText(r.preview, a.gap.x, a.line.y);
+  }
 }
 
 function drawRedactionSolution(r, isActive) {
   if (!r.analysis) return;
   const a = r.analysis;
-  const font = a.font;
-  const fontName = font.name;
-  const fontSize = font.size;
+  const o = r.overrides || {};
+  const fontName = state.fonts.find(f => f.id === (o.fontId ?? a.font.id))?.name ?? a.font.name;
+  const fontSize = o.fontSize ?? a.font.size;
   const fontStr = `${fontSize}px "${fontName}"`;
+  const gapW = o.gapWidth ?? a.gap.w;
 
-  // Green highlight
-  const pad = fontSize * 0.1;
-  ctx.fillStyle = isActive ? "rgba(0, 212, 116, 0.15)" : "rgba(0, 212, 116, 0.08)";
-  ctx.fillRect(a.gap.x, r.y - pad, a.gap.w, r.h + pad * 2);
+  if (isActive) {
+    // Active: draw left green text, green gap with solution text, right green text
+    const startX = a.line.x + (o.offsetX ?? 0);
+    const startY = a.line.y + (o.offsetY ?? 0);
 
-  // Green border
-  ctx.strokeStyle = isActive ? "rgba(0, 212, 116, 0.8)" : "rgba(0, 212, 116, 0.4)";
-  ctx.lineWidth = isActive ? 2 : 1;
-  ctx.strokeRect(a.gap.x, r.y - pad, a.gap.w, r.h + pad * 2);
+    ctx.font = fontStr;
+    ctx.textBaseline = "top";
 
-  // Draw solution text
-  ctx.font = fontStr;
-  ctx.textBaseline = "top";
-  ctx.fillStyle = "rgba(0, 212, 116, 0.95)";
-  ctx.fillText(r.solution.text, a.gap.x, a.line.y);
+    let cursorX = startX;
+
+    // Draw left segment in green
+    const leftText = o.leftText ?? "";
+    if (leftText) {
+      ctx.fillStyle = "rgba(0, 200, 0, 0.7)";
+      ctx.fillText(leftText, cursorX, startY);
+      cursorX += ctx.measureText(leftText).width;
+    }
+
+    // Draw green gap with solution text
+    const pad = fontSize * 0.15;
+    ctx.fillStyle = "rgba(0, 212, 116, 0.15)";
+    ctx.fillRect(cursorX, startY - pad, gapW, fontSize + pad * 2);
+    ctx.strokeStyle = "rgba(0, 212, 116, 0.8)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cursorX, startY - pad, gapW, fontSize + pad * 2);
+
+    // Solution text
+    ctx.fillStyle = "rgba(0, 212, 116, 0.95)";
+    ctx.font = fontStr;
+    ctx.fillText(r.solution.text, cursorX, startY);
+
+    cursorX += gapW;
+
+    // Draw right segment in green
+    const rightText = o.rightText ?? "";
+    if (rightText) {
+      ctx.fillStyle = "rgba(0, 200, 0, 0.7)";
+      ctx.fillText(rightText, cursorX, startY);
+    }
+
+    // Draw bounding box for the original line area
+    ctx.strokeStyle = "rgba(0, 200, 0, 0.3)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(a.line.x, a.line.y, a.line.w, a.line.h);
+  } else {
+    // Non-active: original behavior using gap position
+    const pad = fontSize * 0.1;
+    ctx.fillStyle = "rgba(0, 212, 116, 0.08)";
+    ctx.fillRect(a.gap.x, r.y - pad, gapW, r.h + pad * 2);
+
+    ctx.strokeStyle = "rgba(0, 212, 116, 0.4)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(a.gap.x, r.y - pad, gapW, r.h + pad * 2);
+
+    ctx.font = fontStr;
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(0, 212, 116, 0.95)";
+    ctx.fillText(r.solution.text, a.gap.x, a.line.y);
+  }
 }
 
 // ── Canvas hit-testing ──
@@ -601,7 +876,7 @@ zoomFitBtn.addEventListener("click", zoomToFit);
 
 // Mouse-wheel zoom toward cursor
 rightPanel.addEventListener("wheel", (e) => {
-  if (popover.contains(e.target)) return;
+  if (popover.contains(e.target) || fontToolbar.contains(e.target) || textEditBar.contains(e.target)) return;
   e.preventDefault();
   const rect = rightPanel.getBoundingClientRect();
   const sx = e.clientX - rect.left;
@@ -612,7 +887,7 @@ rightPanel.addEventListener("wheel", (e) => {
 
 // Double-click to zoom in
 rightPanel.addEventListener("dblclick", (e) => {
-  if (popover.contains(e.target)) return;
+  if (popover.contains(e.target) || fontToolbar.contains(e.target) || textEditBar.contains(e.target)) return;
   const rect = rightPanel.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
@@ -625,7 +900,7 @@ let drag = null;
 
 rightPanel.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
-  if (popover.contains(e.target)) return;
+  if (popover.contains(e.target) || fontToolbar.contains(e.target) || textEditBar.contains(e.target)) return;
   drag = {
     startX: e.clientX,
     startY: e.clientY,
@@ -725,14 +1000,13 @@ function startSolve() {
   if (!r || !r.analysis) return;
 
   const a = r.analysis;
-  const fontId = a.font.id;
-  const fontSize = a.font.size;
-  const gapWidth = a.gap.w;
+  const o = r.overrides || {};
+  const fontId = o.fontId ?? a.font.id;
+  const fontSize = o.fontSize ?? a.font.size;
+  const gapWidth = o.gapWidth ?? a.gap.w;
 
-  // Context: last char before gap, first char after gap
-  const segs = a.segments;
-  const leftText = segs.length > 0 ? segs[0].text : "";
-  const rightText = segs.length > 1 ? segs[1].text : "";
+  const leftText = o.leftText ?? (a.segments.length > 0 ? a.segments[0].text : "");
+  const rightText = o.rightText ?? (a.segments.length > 1 ? a.segments[1].text : "");
   const leftCtx = leftText.length > 0 ? leftText[leftText.length - 1] : "";
   const rightCtx = rightText.length > 0 ? rightText[0] : "";
 
@@ -847,6 +1121,8 @@ function handleSolveEvent(data, redactionId) {
       const r = state.redactions[redactionId];
       if (!r) return;
       r.preview = data.text;
+      redactionMarker.textContent = data.text;
+      redactionMarker.className = "redaction-marker preview";
       renderCanvas();
       solveResults.querySelectorAll(".solve-result").forEach(el => el.classList.remove("active"));
       div.classList.add("active");
@@ -898,10 +1174,12 @@ function acceptSolution() {
   if (!r || !r.preview) return;
 
   r.status = "solved";
+  const o = r.overrides || {};
+  const solFontName = state.fonts.find(f => f.id === (o.fontId || r.analysis.font.id))?.name || r.analysis.font.name;
   r.solution = {
     text: r.preview,
-    fontName: r.analysis.font.name,
-    fontSize: r.analysis.font.size,
+    fontName: solFontName,
+    fontSize: o.fontSize || r.analysis.font.size,
   };
   r.preview = null;
 

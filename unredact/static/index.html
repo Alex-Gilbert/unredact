@@ -38,6 +38,41 @@
         </div>
 
         <div id="right-panel">
+          <div id="font-toolbar" hidden>
+            <label>
+              Font
+              <select id="font-select"></select>
+            </label>
+            <span class="toolbar-sep"></span>
+            <div class="size-control">
+              <span>Size</span>
+              <button id="size-down" class="tb-btn">-</button>
+              <input type="range" id="size-slider" min="8" max="120" step="1">
+              <button id="size-up" class="tb-btn">+</button>
+              <span id="size-value">32</span>px
+            </div>
+            <span class="toolbar-sep"></span>
+            <div class="pos-control">
+              <span>Pos</span>
+              <div class="dpad">
+                <button id="pos-up" class="tb-btn dpad-up">&#9650;</button>
+                <div class="dpad-mid">
+                  <button id="pos-left" class="tb-btn">&#9664;</button>
+                  <span id="pos-display" class="pos-display">0, 0</span>
+                  <button id="pos-right" class="tb-btn">&#9654;</button>
+                </div>
+                <button id="pos-down" class="tb-btn dpad-down">&#9660;</button>
+              </div>
+              <button id="pos-reset" class="tb-btn" style="font-size:0.65rem">Reset</button>
+            </div>
+            <span class="toolbar-sep"></span>
+            <div class="gap-control">
+              <span>Gap</span>
+              <button id="gap-down" class="tb-btn">-</button>
+              <span id="gap-value">0</span>px
+              <button id="gap-up" class="tb-btn">+</button>
+            </div>
+          </div>
           <div id="popover" hidden>
             <div class="popover-header">
               <span class="popover-title">Analyze Redaction</span>
@@ -101,6 +136,12 @@
           <div id="doc-container">
             <img id="doc-image" alt="Document page">
             <canvas id="overlay-canvas"></canvas>
+          </div>
+          <div id="text-edit-bar" hidden>
+            <input type="text" id="left-text-input" class="seg-input" spellcheck="false" autocomplete="off" placeholder="left text">
+            <span id="redaction-marker" class="redaction-marker">???</span>
+            <input type="text" id="right-text-input" class="seg-input" spellcheck="false" autocomplete="off" placeholder="right text">
+            <button id="text-reset" class="tb-btn" title="Reset to OCR">Reset</button>
           </div>
         </div>
       </div>
