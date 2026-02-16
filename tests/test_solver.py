@@ -1,7 +1,7 @@
 import pytest
 from PIL import ImageFont
 
-from unredact.pipeline.solver import solve_gap, SolveResult
+from unredact.pipeline.solver import solve_gap, solve_gap_parallel, SolveResult
 
 
 def _get_test_font() -> ImageFont.FreeTypeFont:
@@ -119,3 +119,43 @@ class TestSolveGap:
         assert isinstance(r.width, float)
         assert isinstance(r.error, float)
         assert r.error >= 0
+
+
+class TestSolveGapParallel:
+    def test_same_results_as_serial(self):
+        """Parallel solver should find the same results as serial."""
+        font = _get_test_font()
+        target = font.getlength("hello")
+        serial = solve_gap(
+            font=font, charset="ehlo", target_width=target,
+            tolerance=0.5, min_length=5, max_length=5,
+        )
+        parallel = solve_gap_parallel(
+            font=font, charset="ehlo", target_width=target,
+            tolerance=0.5, min_length=5, max_length=5,
+        )
+        assert set(r.text for r in serial) == set(r.text for r in parallel)
+
+    def test_parallel_with_larger_charset(self):
+        """Should handle a real-sized charset without errors."""
+        font = _get_test_font()
+        target = font.getlength("cat")
+        results = solve_gap_parallel(
+            font=font, charset="abcdefghijklmnopqrstuvwxyz",
+            target_width=target, tolerance=0.5,
+            min_length=3, max_length=3,
+        )
+        texts = [r.text for r in results]
+        assert "cat" in texts
+
+    def test_progress_callback(self):
+        """Progress callback should be called with node counts."""
+        font = _get_test_font()
+        target = font.getlength("ab")
+        progress = []
+        solve_gap_parallel(
+            font=font, charset="abc", target_width=target,
+            tolerance=1.0, min_length=2, max_length=2,
+            on_progress=lambda checked, found: progress.append((checked, found)),
+        )
+        assert len(progress) > 0
