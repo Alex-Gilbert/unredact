@@ -1,12 +1,14 @@
 import asyncio
 import io
 import json
+import os
 import re
 import uuid
 import uuid as uuid_mod
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import httpx
 from fastapi import FastAPI, UploadFile
 from fastapi.responses import RedirectResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,16 +20,32 @@ from unredact.pipeline.rasterize import rasterize_pdf
 from unredact.pipeline.ocr import ocr_page
 from unredact.pipeline.font_detect import detect_fonts, CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.overlay import render_overlay
-from unredact.pipeline.solver import solve_gap_parallel
+from unredact.pipeline.solver import build_constraint, SolveResult
 from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary
-from unredact.pipeline.width_table import CHARSETS
+from unredact.pipeline.width_table import build_width_table, CHARSETS
 
 app = FastAPI(title="Unredact")
+
+SOLVER_URL = os.environ.get("SOLVER_URL", "http://127.0.0.1:3100")
 
 # In-memory store for uploaded docs (local-only tool, no persistence needed)
 _docs: dict[str, dict] = {}
 
 STATIC_DIR = Path(__file__).parent / "static"
+DATA_DIR = Path(__file__).parent / "data"
+
+# Lazy-loaded associates data
+_associates_data: dict | None = None
+
+def _get_associates() -> dict:
+    global _associates_data
+    if _associates_data is None:
+        associates_path = DATA_DIR / "associates.json"
+        if associates_path.exists():
+            _associates_data = json.loads(associates_path.read_text())
+        else:
+            _associates_data = {"names": {}, "persons": {}}
+    return _associates_data
 
 
 def _make_font_id(name: str) -> str:
@@ -170,6 +188,72 @@ class SolveRequest(BaseModel):
     right_context: str = ""
     hints: dict = {}
     mode: str = "enumerate"
+    word_filter: str = "none"  # "none", "words", "names", "both"
+    filter_prefix: str = ""
+    filter_suffix: str = ""
+
+
+def _build_rust_solve_payload(
+    font: ImageFont.FreeTypeFont,
+    charset: str,
+    target_width: float,
+    tolerance: float,
+    left_context: str,
+    right_context: str,
+    constraint=None,
+) -> dict:
+    """Build the JSON payload for the Rust /solve endpoint."""
+    wt = build_width_table(font, charset, left_context, right_context)
+    payload = {
+        "charset": charset,
+        "width_table": wt.width_table.flatten().tolist(),
+        "left_edge": wt.left_edge.tolist(),
+        "right_edge": wt.right_edge.tolist(),
+        "target": float(target_width),
+        "tolerance": float(tolerance),
+    }
+    if constraint is not None:
+        payload["state_allowed"] = constraint.state_allowed
+        payload["state_next"] = constraint.state_next
+        payload["accept_states"] = sorted(constraint.accept_states)
+    return payload
+
+
+def _build_rust_full_name_payload(
+    font: ImageFont.FreeTypeFont,
+    target_width: float,
+    tolerance: float,
+    left_context: str,
+    right_context: str,
+    uppercase_only: bool,
+) -> dict:
+    """Build the JSON payload for the Rust /solve/full-name endpoint."""
+    word_charset = CHARSETS["uppercase"] if uppercase_only else CHARSETS["alpha"]
+    wt1 = build_width_table(font, word_charset, left_context, "")
+    wt2 = build_width_table(font, word_charset, "", right_context)
+
+    n = len(word_charset)
+    space_advance = []
+    for c in word_charset:
+        space_advance.append(font.getlength(c + " ") - font.getlength(c))
+    space_base = font.getlength(" ")
+    left_after_space = []
+    for c in word_charset:
+        left_after_space.append(font.getlength(" " + c) - space_base)
+
+    return {
+        "word_charset": word_charset,
+        "wt1_table": wt1.width_table.flatten().tolist(),
+        "wt1_left_edge": wt1.left_edge.tolist(),
+        "wt1_right_edge": wt1.right_edge.tolist(),
+        "wt2_table": wt2.width_table.flatten().tolist(),
+        "wt2_right_edge": wt2.right_edge.tolist(),
+        "space_advance": space_advance,
+        "left_after_space": left_after_space,
+        "target": float(target_width),
+        "tolerance": float(tolerance),
+        "uppercase_only": uppercase_only,
+    }
 
 
 @app.post("/api/solve")
@@ -180,9 +264,8 @@ async def solve(req: SolveRequest):
 
     font = ImageFont.truetype(str(font_path), req.font_size)
     charset_name = req.hints.get("charset", "lowercase")
-    charset = CHARSETS.get(charset_name, charset_name)
-    min_length = req.hints.get("min_length", 1)
-    max_length = req.hints.get("max_length", 10)
+
+    use_full_name = charset_name in ("full_name_capitalized", "full_name_caps")
 
     solve_id = uuid_mod.uuid4().hex[:12]
     _active_solves[solve_id] = False
@@ -211,33 +294,61 @@ async def solve(req: SolveRequest):
                         })
 
             if req.mode in ("enumerate", "both") and not _active_solves.get(solve_id):
-                loop = asyncio.get_event_loop()
-                results = await loop.run_in_executor(
-                    None,
-                    lambda: solve_gap_parallel(
-                        font=font,
-                        charset=charset,
-                        target_width=req.gap_width_px,
-                        tolerance=req.tolerance_px,
-                        min_length=min_length,
-                        max_length=max_length,
-                        left_context=req.left_context,
-                        right_context=req.right_context,
-                    ),
-                )
-                for r in results:
-                    if _active_solves.get(solve_id):
-                        break
-                    if r.text in found_texts:
-                        continue
-                    found_texts.add(r.text)
-                    yield json.dumps({
-                        "status": "match",
-                        "text": r.text,
-                        "width_px": round(r.width, 2),
-                        "error_px": round(r.error, 2),
-                        "source": "enumerate",
-                    })
+                # Build payload and call Rust solver (streaming SSE)
+                if use_full_name:
+                    payload = _build_rust_full_name_payload(
+                        font, req.gap_width_px, req.tolerance_px,
+                        req.left_context, req.right_context,
+                        uppercase_only=(charset_name == "full_name_caps"),
+                    )
+                    payload["filter"] = req.word_filter
+                    payload["filter_prefix"] = req.filter_prefix
+                    payload["filter_suffix"] = req.filter_suffix
+                    url = f"{SOLVER_URL}/solve/full-name"
+                else:
+                    charset = CHARSETS.get(charset_name, charset_name)
+                    constraint = None
+                    if charset_name == "capitalized":
+                        charset = CHARSETS["alpha"] + " "
+                        constraint = build_constraint(charset_name, charset)
+                    payload = _build_rust_solve_payload(
+                        font, charset, req.gap_width_px, req.tolerance_px,
+                        req.left_context, req.right_context, constraint,
+                    )
+                    payload["filter"] = req.word_filter
+                    payload["filter_prefix"] = req.filter_prefix
+                    payload["filter_suffix"] = req.filter_suffix
+                    url = f"{SOLVER_URL}/solve"
+
+                async with httpx.AsyncClient(timeout=None) as client:
+                    async with client.stream("POST", url, json=payload) as resp:
+                        buf = ""
+                        async for chunk in resp.aiter_text():
+                            if _active_solves.get(solve_id):
+                                break
+                            buf += chunk
+                            while "\n" in buf:
+                                line, buf = buf.split("\n", 1)
+                                line = line.strip()
+                                if not line.startswith("data: "):
+                                    continue
+                                try:
+                                    r = json.loads(line[6:])
+                                except (json.JSONDecodeError, ValueError):
+                                    continue
+                                if r.get("done"):
+                                    break
+                                text = r.get("text", "")
+                                if text in found_texts:
+                                    continue
+                                found_texts.add(text)
+                                yield json.dumps({
+                                    "status": "match",
+                                    "text": text,
+                                    "width_px": round(r["width"], 2),
+                                    "error_px": round(r["error"], 2),
+                                    "source": "enumerate",
+                                })
 
             yield json.dumps({
                 "status": "done",
@@ -276,6 +387,11 @@ async def list_dictionaries():
 async def delete_dictionary(name: str):
     _dictionary_store.remove(name)
     return {"status": "ok"}
+
+
+@app.get("/api/associates")
+async def get_associates():
+    return _get_associates()
 
 
 # Static files mount MUST be after all route definitions

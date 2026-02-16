@@ -147,8 +147,6 @@ async def test_solve_endpoint_enumerate():
             "right_context": "",
             "hints": {
                 "charset": "lowercase",
-                "min_length": 2,
-                "max_length": 3,
             },
             "mode": "enumerate",
         })
@@ -174,8 +172,6 @@ async def test_solve_endpoint_dictionary():
             "right_context": "",
             "hints": {
                 "charset": "lowercase",
-                "min_length": 1,
-                "max_length": 10,
             },
             "mode": "dictionary",
         })
@@ -202,3 +198,17 @@ async def test_dictionary_crud():
 
         resp = await client.get("/api/dictionary")
         assert "test-names" not in resp.json()["dictionaries"]
+
+
+@pytest.mark.anyio
+async def test_get_associates():
+    """GET /api/associates should return the associates lookup data."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/associates")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "names" in data
+        assert "persons" in data
+        assert isinstance(data["names"], dict)
+        assert isinstance(data["persons"], dict)
