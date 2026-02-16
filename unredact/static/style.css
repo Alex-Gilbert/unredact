@@ -1,0 +1,102 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  min-height: 100vh;
+}
+
+header {
+  padding: 1.5rem 2rem;
+  background: #16213e;
+  border-bottom: 2px solid #0f3460;
+}
+
+header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: #00d474;
+}
+
+.subtitle {
+  font-size: 0.85rem;
+  color: #888;
+  margin-top: 0.25rem;
+}
+
+main { padding: 2rem; }
+
+#drop-zone {
+  border: 2px dashed #0f3460;
+  border-radius: 12px;
+  padding: 4rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+#drop-zone:hover, #drop-zone.dragover {
+  border-color: #00d474;
+  background: rgba(0, 212, 116, 0.05);
+}
+
+#drop-zone p { font-size: 1.1rem; color: #aaa; }
+
+#controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: #16213e;
+  border-radius: 8px;
+}
+
+#controls button {
+  background: #0f3460;
+  color: #e0e0e0;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#overlay-toggle {
+  margin-left: auto;
+  cursor: pointer;
+  user-select: none;
+}
+
+#font-info {
+  font-size: 0.8rem;
+  color: #00d474;
+}
+
+#doc-container {
+  background: #111;
+  border-radius: 8px;
+  overflow: auto;
+  max-height: 80vh;
+  text-align: center;
+}
+
+#doc-image {
+  max-width: 100%;
+  height: auto;
+}
+
+.loading {
+  color: #00d474;
+  text-align: center;
+  padding: 2rem;
+  font-size: 1.2rem;
+}
