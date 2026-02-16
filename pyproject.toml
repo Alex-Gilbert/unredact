@@ -1,0 +1,24 @@
+[project]
+name = "unredact"
+version = "0.1.0"
+description = "AI-powered redaction analysis for Epstein case files"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+    "pdf2image>=1.17",
+    "pytesseract>=0.3.13",
+    "opencv-python>=4.10",
+    "Pillow>=11.0",
+    "anthropic>=0.52",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.28",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
