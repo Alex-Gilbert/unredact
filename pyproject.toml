@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.34",
+    "python-multipart>=0.0.17",
     "pdf2image>=1.17",
     "pytesseract>=0.3.13",
     "opencv-python>=4.10",
@@ -18,6 +19,8 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "httpx>=0.28",
+    "anyio>=4.0",
+    "pytest-anyio>=0.0.0",
 ]
 
 [build-system]
