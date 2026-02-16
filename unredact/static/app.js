@@ -869,32 +869,47 @@ const MATCH_TYPE_WEIGHTS = {
 
 function matchAssociates(text) {
   if (!state.associates?.names) return [];
-  const key = text.toLowerCase().trim();
-  const matches = state.associates.names[key];
-  if (!matches) return [];
 
   const prefix = solveFilterPrefix.value.toLowerCase().trim();
   const suffix = solveFilterSuffix.value.toLowerCase().trim();
+  const gapKey = text.toLowerCase().trim();
 
-  return matches.map(m => {
-    const person = state.associates.persons[m.person_id];
-    const weight = MATCH_TYPE_WEIGHTS[m.match_type] || 1;
-    let score = (4 - m.tier) * weight;
+  // Try the gap text alone, and also with prefix/suffix combined
+  // e.g., gap="oe", prefix="j" → also look up "joe"
+  const keysToTry = new Set([gapKey]);
+  if (prefix || suffix) keysToTry.add(prefix + gapKey + suffix);
+  if (prefix) keysToTry.add(prefix + gapKey);
+  if (suffix) keysToTry.add(gapKey + suffix);
 
-    // Boost if the associate's name aligns with user's prefix/suffix hints
-    const pname = (person?.name || "").toLowerCase();
-    if (prefix && pname.startsWith(prefix)) score += 2;
-    if (suffix && pname.endsWith(suffix)) score += 2;
+  // Collect all matches, dedup by person_id, prefer the highest-scoring key
+  const bestByPerson = new Map();
 
-    return {
-      personId: m.person_id,
-      personName: person?.name || "Unknown",
-      category: person?.category || "other",
-      tier: m.tier,
-      matchType: m.match_type,
-      score,
-    };
-  }).sort((a, b) => b.score - a.score);
+  for (const key of keysToTry) {
+    const entries = state.associates.names[key];
+    if (!entries) continue;
+    const isComposite = key !== gapKey; // matched via prefix+gap+suffix
+
+    for (const m of entries) {
+      const person = state.associates.persons[m.person_id];
+      const weight = MATCH_TYPE_WEIGHTS[m.match_type] || 1;
+      let score = (4 - m.tier) * weight;
+      if (isComposite) score += 3; // boost: prefix/suffix context confirms the match
+
+      const existing = bestByPerson.get(m.person_id);
+      if (!existing || score > existing.score) {
+        bestByPerson.set(m.person_id, {
+          personId: m.person_id,
+          personName: person?.name || "Unknown",
+          category: person?.category || "other",
+          tier: m.tier,
+          matchType: isComposite ? `${m.match_type} (${key})` : m.match_type,
+          score,
+        });
+      }
+    }
+  }
+
+  return [...bestByPerson.values()].sort((a, b) => b.score - a.score);
 }
 
 function tierBadgeClass(tier) {
