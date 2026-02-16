@@ -72,8 +72,8 @@ def _compute_tiers(registry: list[dict], relationships: list[dict]) -> dict[str,
     rel_counts: dict[str, int] = defaultdict(int)
 
     for rel in relationships:
-        src = rel.get("source", "")
-        tgt = rel.get("target", "")
+        src = rel.get("source_name", rel.get("source", ""))
+        tgt = rel.get("target_name", rel.get("target", ""))
         rtype = rel.get("relationship_type", "")
 
         rel_counts[src] += 1
@@ -232,7 +232,7 @@ def main():
         print(f"  Tier {tier}: {tier_counts[tier]} persons")
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(json.dumps(result, indent=2))
+    OUTPUT_PATH.write_text(json.dumps(result, separators=(",", ":")))
     print(f"Wrote {OUTPUT_PATH}")
 
 
