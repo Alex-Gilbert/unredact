@@ -17,9 +17,8 @@ from PIL import Image, ImageFont
 from sse_starlette.sse import EventSourceResponse
 
 from unredact.pipeline.rasterize import rasterize_pdf
-from unredact.pipeline.ocr import ocr_page
-from unredact.pipeline.font_detect import detect_fonts, CANDIDATE_FONTS, _find_font_path
-from unredact.pipeline.overlay import render_overlay
+from unredact.pipeline.detect_redactions import detect_redactions
+from unredact.pipeline.font_detect import CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.solver import build_constraint, SolveResult
 from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary
 from unredact.pipeline.word_filter import _get_emails
@@ -88,17 +87,12 @@ async def upload_pdf(file: UploadFile):
 
     pages = rasterize_pdf(pdf_path)
 
-    # Process each page
     page_data = {}
     for i, page_img in enumerate(pages, start=1):
-        lines = ocr_page(page_img)
-        font_matches = detect_fonts(lines, page_img)
-        overlay_img = render_overlay(page_img, lines, font_matches)
+        redactions = detect_redactions(page_img)
         page_data[i] = {
             "original": page_img,
-            "overlay": overlay_img,
-            "lines": lines,
-            "font_matches": font_matches,
+            "redactions": redactions,
         }
 
     _docs[doc_id] = {
@@ -116,18 +110,6 @@ async def get_page_original(doc_id: str, page: int):
     if not doc or page not in doc["pages"]:
         return JSONResponse({"error": "not found"}, status_code=404)
     png = _image_to_png_bytes(doc["pages"][page]["original"])
-    return Response(content=png, media_type="image/png")
-
-
-@app.get("/api/doc/{doc_id}/page/{page}/overlay")
-async def get_page_overlay(doc_id: str, page: int):
-    doc = _docs.get(doc_id)
-    if not doc or page not in doc["pages"]:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    overlay = doc["pages"][page]["overlay"]
-    # Convert RGBA to RGB for PNG output
-    rgb = overlay.convert("RGB")
-    png = _image_to_png_bytes(rgb)
     return Response(content=png, media_type="image/png")
 
 
@@ -151,26 +133,11 @@ async def get_page_data(doc_id: str, page: int):
         return JSONResponse({"error": "not found"}, status_code=404)
 
     pd = doc["pages"][page]
-    font_matches = pd["font_matches"]
-    lines_json = []
-    for line, fm in zip(pd["lines"], font_matches):
-        chars_json = [
-            {"text": c.text, "x": c.x, "y": c.y, "w": c.w, "h": c.h, "conf": c.conf}
-            for c in line.chars
-        ]
-        lines_json.append({
-            "text": line.text,
-            "x": line.x, "y": line.y, "w": line.w, "h": line.h,
-            "chars": chars_json,
-            "font": {
-                "name": fm.font_name,
-                "id": _make_font_id(fm.font_name),
-                "size": fm.font_size,
-                "score": fm.score,
-            },
-        })
-
-    return {"lines": lines_json}
+    redactions_json = [
+        {"id": r.id, "x": r.x, "y": r.y, "w": r.w, "h": r.h}
+        for r in pd["redactions"]
+    ]
+    return {"redactions": redactions_json}
 
 
 # In-memory dictionary store
