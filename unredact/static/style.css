@@ -521,6 +521,13 @@ main {
   color: #000;
 }
 
+.assoc-badge.victim {
+  background: #7b1fa2;
+  color: #fff;
+  cursor: default;
+  pointer-events: none;
+}
+
 /* Associate detail popup */
 #assoc-detail {
   position: absolute;
