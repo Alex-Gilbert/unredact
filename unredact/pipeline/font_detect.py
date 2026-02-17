@@ -227,6 +227,7 @@ def _fine_search(line: OcrLine, line_crop: np.ndarray, coarse: FontMatch) -> Fon
 
 def detect_font_for_line(
     line: OcrLine,
+    page_image: Image.Image,
     prior: FontMatch | None = None,
 ) -> FontMatch:
     """Detect the best font for a single line of text.
@@ -236,36 +237,45 @@ def detect_font_for_line(
     to maintain consistency. Only do a full search if the prior is
     significantly worse or absent.
     """
-    # Lines with too few words can't be scored reliably
-    word_count = line.text.count(" ") + 1
-    if word_count < 2:
+    # Crop line region from page image and create crop-relative line
+    line_crop = np.array(
+        page_image.convert("L").crop((line.x, line.y, line.x + line.w, line.y + line.h))
+    )
+    scoring_line = OcrLine(
+        chars=line.chars,
+        x=0, y=0,
+        w=line.w, h=line.h,
+    )
+
+    # Lines with too few characters can't be scored reliably
+    if len(line.text.strip()) < 3:
         if prior is not None:
             return prior
         # Fall through to full search
 
     # Test the prior first
-    prior_score = float("inf")
+    prior_score = 0.0
     if prior is not None:
         try:
             prior_font = prior.to_pil_font()
-            prior_score = _score_font_line(prior_font, line)
+            prior_score = _score_font_line_pixel(prior_font, scoring_line, line_crop)
         except Exception:
             pass
 
     # Full search
-    best = _full_search(line)
+    best = _full_search(scoring_line, line_crop)
     if best is None:
         if prior is not None:
             return prior
         raise RuntimeError("No matching font found. Check system fonts.")
 
     # Fine-tune the full search winner
-    best = _fine_search(line, best)
+    best = _fine_search(scoring_line, line_crop, best)
 
     # If we have a prior and it's close enough, prefer it for consistency
-    if prior is not None and prior_score <= best.score * PRIOR_BIAS:
+    if prior is not None and prior_score >= best.score * (1.0 / PRIOR_BIAS):
         # Fine-tune the prior too
-        return _fine_search(line, prior)
+        return _fine_search(scoring_line, line_crop, prior)
 
     return best
 
@@ -285,7 +295,7 @@ def detect_fonts(
     prior: FontMatch | None = None
 
     for line in lines:
-        match = detect_font_for_line(line, prior=prior)
+        match = detect_font_for_line(line, page_image, prior=prior)
         results.append(match)
         prior = match
 
