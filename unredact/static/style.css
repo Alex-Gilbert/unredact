@@ -95,6 +95,13 @@ main {
   text-align: center;
 }
 
+#viewer-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
 /* Workspace: split panel */
 #workspace {
   display: flex;
