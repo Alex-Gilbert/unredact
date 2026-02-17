@@ -5,7 +5,7 @@ import { state } from './state.js';
 import {
   dropZone, fileInput, uploadSection, viewerSection, docImage,
   canvas, pageInfo, prevBtn, nextBtn, redactionListEl,
-  rightPanel, popoverEl, fontToolbar, textEditBar, fontSelect,
+  rightPanel, fontSelect,
   solveAccept, gapValue, showToast,
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
@@ -74,7 +74,7 @@ fileInput.addEventListener("change", () => {
 });
 
 async function uploadFile(file) {
-  uploadSection.innerHTML = '<p class="loading">Analyzing document...</p>';
+  uploadSection.innerHTML = '<p class="loading">Uploading document...</p>';
 
   const fontPromise = loadFonts();
   const assocPromise = loadAssociates();
@@ -93,7 +93,38 @@ async function uploadFile(file) {
   uploadSection.hidden = true;
   viewerSection.hidden = false;
 
+  // Load the first page image and controls immediately
   await loadPage(1);
+
+  // Start background analysis via SSE
+  startAnalysisSSE();
+}
+
+/**
+ * Open an SSE connection to the analyze endpoint. As each page completes,
+ * reload its redaction data (which now includes pre-computed analysis).
+ */
+function startAnalysisSSE() {
+  const es = new EventSource(`/api/doc/${state.docId}/analyze`);
+  showToast("Analyzing document...");
+
+  es.addEventListener("message", (e) => {
+    /** @type {any} */
+    const data = JSON.parse(e.data);
+
+    if (data.event === "page_complete") {
+      // Reload the page data to pick up pre-computed analysis
+      loadPageData(data.page);
+    } else if (data.event === "done") {
+      es.close();
+      showToast("Analysis complete");
+    }
+  });
+
+  es.addEventListener("error", () => {
+    es.close();
+    showToast("Analysis connection lost", "error");
+  });
 }
 
 // ── Page loading ──
@@ -106,28 +137,53 @@ async function loadPage(page) {
 
   docImage.src = `/api/doc/${state.docId}/page/${page}/original`;
 
-  const resp = await fetch(`/api/doc/${state.docId}/page/${page}/data`);
+  await loadPageData(page);
+}
+
+/**
+ * Fetch page data and populate redaction state. Called both on page
+ * navigation and when SSE signals a page analysis is complete.
+ * @param {number} pageNum
+ */
+async function loadPageData(pageNum) {
+  const resp = await fetch(`/api/doc/${state.docId}/page/${pageNum}/data`);
   const data = await resp.json();
 
   for (const r of data.redactions) {
-    if (!state.redactions[r.id]) {
-      state.redactions[r.id] = {
-        id: r.id,
-        x: r.x,
-        y: r.y,
-        w: r.w,
-        h: r.h,
-        page: page,
-        status: "unanalyzed",
-        analysis: null,
-        solution: null,
-        preview: null,
+    // Preserve existing solution/preview if the redaction was already loaded
+    const existing = state.redactions[r.id];
+
+    state.redactions[r.id] = {
+      id: r.id,
+      x: r.x,
+      y: r.y,
+      w: r.w,
+      h: r.h,
+      page: pageNum,
+      status: r.analysis ? "analyzed" : "unanalyzed",
+      analysis: r.analysis || null,
+      solution: existing?.solution || null,
+      preview: existing?.preview || null,
+    };
+
+    if (r.analysis) {
+      state.redactions[r.id].overrides = existing?.overrides || {
+        fontId: r.analysis.font.id,
+        fontSize: r.analysis.font.size,
+        offsetX: r.analysis.offset_x || 0,
+        offsetY: r.analysis.offset_y || 0,
+        gapWidth: r.analysis.gap.w,
+        leftText: r.analysis.segments[0]?.text || "",
+        rightText: r.analysis.segments[1]?.text || "",
       };
     }
   }
 
-  renderRedactionList();
-  renderCanvas();
+  // Only re-render if this is the currently viewed page
+  if (pageNum === state.currentPage) {
+    renderRedactionList();
+    renderCanvas();
+  }
 }
 
 function updatePageControls() {
@@ -211,7 +267,7 @@ function redactionInfoText(r) {
   return `${Math.round(r.w)} x ${Math.round(r.h)} px`;
 }
 
-// ── Activate & analyze redaction ──
+// ── Activate redaction ──
 
 function activateRedaction(id) {
   const r = state.redactions[id];
@@ -226,61 +282,8 @@ function activateRedaction(id) {
   renderRedactionList();
   renderCanvas();
 
-  if (r.status === "unanalyzed") {
-    analyzeRedaction(id);
-  } else if (r.status === "analyzed" || r.status === "solved") {
+  if (r.status === "analyzed" || r.status === "solved") {
     openPopover(id);
-  }
-}
-
-async function analyzeRedaction(id) {
-  const r = state.redactions[id];
-  if (!r) return;
-
-  r.status = "analyzing";
-  renderRedactionList();
-
-  try {
-    const resp = await fetch("/api/redaction/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        doc_id: state.docId,
-        page: r.page,
-        redaction: { x: r.x, y: r.y, w: r.w, h: r.h },
-      }),
-    });
-
-    if (!resp.ok) {
-      const err = await resp.json();
-      r.status = "error";
-      console.error("Analysis failed:", err);
-      renderRedactionList();
-      return;
-    }
-
-    const data = await resp.json();
-    r.status = "analyzed";
-    r.analysis = data;
-    r.overrides = {
-      fontId: data.font.id,
-      fontSize: data.font.size,
-      offsetX: data.offset_x || 0,
-      offsetY: data.offset_y || 0,
-      gapWidth: data.gap.w,
-      leftText: data.segments.length > 0 ? data.segments[0].text : "",
-      rightText: data.segments.length > 1 ? data.segments[1].text : "",
-    };
-    renderRedactionList();
-    renderCanvas();
-
-    if (state.activeRedaction === id) {
-      openPopover(id);
-    }
-  } catch (e) {
-    r.status = "error";
-    console.error("Analysis error:", e);
-    renderRedactionList();
   }
 }
 
@@ -309,94 +312,6 @@ canvas.addEventListener("mousemove", (e) => {
 
   const hit = hitTestRedaction(doc.x, doc.y);
   canvas.style.cursor = hit ? "pointer" : "";
-});
-
-// ── Double-click spot detection ──
-
-rightPanel.addEventListener("dblclick", async (e) => {
-  if (popoverEl.contains(/** @type {Node} */ (e.target)) ||
-      fontToolbar.contains(/** @type {Node} */ (e.target)) ||
-      textEditBar.contains(/** @type {Node} */ (e.target))) return;
-  if (!state.docId) return;
-
-  const rect = rightPanel.getBoundingClientRect();
-  const sx = e.clientX - rect.left;
-  const sy = e.clientY - rect.top;
-  const doc = screenToDoc(sx, sy);
-
-  const hit = hitTestRedaction(doc.x, doc.y);
-  if (hit) return;
-
-  const clickX = Math.round(doc.x);
-  const clickY = Math.round(doc.y);
-
-  showToast("Detecting redaction...");
-
-  try {
-    const resp = await fetch("/api/redaction/spot", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        doc_id: state.docId,
-        page: state.currentPage,
-        click_x: clickX,
-        click_y: clickY,
-      }),
-    });
-
-    if (!resp.ok) {
-      const err = await resp.json();
-      showToast(err.error === "no_redaction_found" ? "No redaction found at click point" : "Detection failed", "error");
-      return;
-    }
-
-    const data = await resp.json();
-    const box = data.box;
-
-    const existingDup = Object.values(state.redactions).find(r =>
-      r.page === state.currentPage &&
-      Math.abs(r.x - box.x) < 3 && Math.abs(r.y - box.y) < 3 &&
-      Math.abs(r.w - box.w) < 3 && Math.abs(r.h - box.h) < 3
-    );
-    if (existingDup) {
-      activateRedaction(existingDup.id);
-      return;
-    }
-
-    const id = "m" + Date.now().toString(36);
-
-    state.redactions[id] = {
-      id,
-      x: box.x,
-      y: box.y,
-      w: box.w,
-      h: box.h,
-      page: state.currentPage,
-      status: data.segments ? "analyzed" : "unanalyzed",
-      analysis: data.segments ? data : null,
-      solution: null,
-      preview: null,
-    };
-
-    if (data.segments) {
-      state.redactions[id].overrides = {
-        fontId: data.font.id,
-        fontSize: data.font.size,
-        offsetX: data.offset_x || 0,
-        offsetY: data.offset_y || 0,
-        gapWidth: data.gap.w,
-        leftText: data.segments.length > 0 ? data.segments[0].text : "",
-        rightText: data.segments.length > 1 ? data.segments[1].text : "",
-      };
-    }
-
-    renderRedactionList();
-    renderCanvas();
-    activateRedaction(id);
-  } catch (e) {
-    console.error("Spot detection error:", e);
-    showToast("Detection failed: " + e.message, "error");
-  }
 });
 
 // ── Ctrl+drag offset / Shift+drag gap width ──
