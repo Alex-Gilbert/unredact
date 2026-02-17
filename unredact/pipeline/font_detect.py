@@ -172,24 +172,31 @@ def _score_font_line(
     return sum(errors) / len(errors)
 
 
-def _full_search(line: OcrLine) -> FontMatch | None:
+def _full_search(line: OcrLine, line_crop: np.ndarray) -> FontMatch | None:
     """Full search across all candidate fonts and sizes for one line."""
     best: FontMatch | None = None
+
+    # Constrain size range using the OCR line height.
+    # Pixel scoring has sharp peaks at the exact size, so we scan
+    # every integer size (step=1) instead of using a coarse step.
+    line_h = line.h
+    min_size = max(12, int(line_h * 0.6))
+    max_size = min(120, int(line_h * 1.4))
 
     for font_name in CANDIDATE_FONTS:
         font_path = _find_font_path(font_name)
         if font_path is None:
             continue
 
-        for size in SIZE_RANGE:
+        for size in range(min_size, max_size + 1):
             try:
                 font = ImageFont.truetype(str(font_path), size)
             except Exception:
                 continue
 
-            score = _score_font_line(font, line)
+            score = _score_font_line_pixel(font, line, line_crop)
 
-            if best is None or score < best.score:
+            if best is None or score > best.score:
                 best = FontMatch(
                     font_name=font_name,
                     font_path=font_path,
@@ -200,7 +207,7 @@ def _full_search(line: OcrLine) -> FontMatch | None:
     return best
 
 
-def _fine_search(line: OcrLine, coarse: FontMatch) -> FontMatch:
+def _fine_search(line: OcrLine, line_crop: np.ndarray, coarse: FontMatch) -> FontMatch:
     """Fine search: ±3 around the coarse best size in steps of 1."""
     best = coarse
     for size in range(max(8, coarse.font_size - 3), coarse.font_size + 4):
@@ -210,8 +217,8 @@ def _fine_search(line: OcrLine, coarse: FontMatch) -> FontMatch:
             font = ImageFont.truetype(str(coarse.font_path), size)
         except Exception:
             continue
-        score = _score_font_line(font, line)
-        if score < best.score:
+        score = _score_font_line_pixel(font, line, line_crop)
+        if score > best.score:
             best = FontMatch(
                 font_name=coarse.font_name,
                 font_path=coarse.font_path,
