@@ -148,7 +148,9 @@ class AnalyzeRequest(BaseModel):
 
 def _run_analysis(page_img: Image.Image, rx: int, ry: int, rw: int, rh: int) -> dict | None:
     """Run OCR + font detection for a redaction box. Returns analysis dict or None."""
-    pad_y = rh
+    # Use wider padding to capture neighboring lines for font detection
+    # (the line containing the redaction has corrupted OCR and pixel data).
+    pad_y = rh * 3
     crop_y1 = max(0, ry - pad_y)
     crop_y2 = min(page_img.height, ry + rh + pad_y)
     line_crop = page_img.crop((0, crop_y1, page_img.width, crop_y2))
@@ -160,7 +162,22 @@ def _run_analysis(page_img: Image.Image, rx: int, ry: int, rw: int, rh: int) -> 
     redaction_cy = (ry - crop_y1) + rh / 2
     best_line = min(lines, key=lambda l: abs((l.y + l.h / 2) - redaction_cy))
 
-    font_match = detect_font_for_line(best_line, line_crop)
+    # For font detection, prefer a nearby line that does NOT overlap the
+    # redaction box — the redaction's dark pixels and OCR artifacts make
+    # pixel-based scoring unreliable on the redaction line itself.
+    red_y1_local = ry - crop_y1
+    red_y2_local = ry + rh - crop_y1
+    clean_lines = [
+        line for line in lines
+        if not (line.y < red_y2_local and line.y + line.h > red_y1_local)
+        and len(line.text.strip()) >= 5
+    ]
+    if clean_lines:
+        font_line = min(clean_lines, key=lambda l: abs((l.y + l.h / 2) - redaction_cy))
+    else:
+        font_line = best_line
+
+    font_match = detect_font_for_line(font_line, line_crop)
 
     segments = []
     gap = {"x": rx, "w": rw}
