@@ -126,6 +126,81 @@ def _score_font_line_pixel(
     return best_score
 
 
+def align_text_to_page(
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    page_crop: np.ndarray,
+    search_x: int = 20,
+    search_y: int = 10,
+) -> tuple[int, int]:
+    """Find the (x, y) offset where rendered text best aligns with the page.
+
+    Renders the text, then slides it across the page crop to find the
+    position with maximum pixel overlap.
+
+    Args:
+        text: The text to render and align.
+        font: PIL font to render with.
+        page_crop: Grayscale numpy array of the page region to align against.
+        search_x: Horizontal search range (±pixels).
+        search_y: Vertical search range (±pixels).
+
+    Returns:
+        (offset_x, offset_y) — pixel offsets from the crop's top-left corner
+        to where the rendered text best aligns.
+    """
+    h, w = page_crop.shape
+    if h < 5 or w < 10 or not text.strip():
+        return (0, 0)
+
+    page_bin = page_crop < 128
+    page_ink = int(page_bin.sum())
+    if page_ink < 10:
+        return (0, 0)
+
+    # Render the text
+    bbox = font.getbbox(text)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+    if text_w < 1 or text_h < 1:
+        return (0, 0)
+
+    # Render onto a canvas large enough to slide within
+    canvas_w = w + search_x * 2
+    canvas_h = h + search_y * 2
+    rendered_img = Image.new("L", (canvas_w, canvas_h), 255)
+    draw = ImageDraw.Draw(rendered_img)
+    # Place text at center of the search area
+    draw.text((search_x - bbox[0], search_y - bbox[1]), text, font=font, fill=0)
+    rendered_arr = np.array(rendered_img)
+    rendered_bin = rendered_arr < 128
+
+    rendered_ink = int(rendered_bin.sum())
+    if rendered_ink < 10:
+        return (0, 0)
+
+    # Slide the rendered text and find the best alignment
+    best_score = 0.0
+    best_dx, best_dy = 0, 0
+
+    for dy in range(-search_y, search_y + 1):
+        for dx in range(-search_x, search_x + 1):
+            # Extract the window from the rendered canvas that aligns with the page
+            ry = search_y + dy
+            rx = search_x + dx
+            window = rendered_bin[ry:ry + h, rx:rx + w]
+            if window.shape != page_bin.shape:
+                continue
+            intersection = int((page_bin & window).sum())
+            total = page_ink + rendered_ink
+            score = 2.0 * intersection / total if total > 0 else 0.0
+            if score > best_score:
+                best_score = score
+                best_dx, best_dy = dx, dy
+
+    # The offset is where the text's top-left corner lands in the crop
+    return (-best_dx, -best_dy)
+
 
 def _full_search(line: OcrLine, line_crop: np.ndarray) -> FontMatch | None:
     """Full search across all candidate fonts and sizes for one line."""

@@ -19,7 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 from unredact.pipeline.rasterize import rasterize_pdf
 from unredact.pipeline.detect_redactions import spot_redaction
 from unredact.pipeline.ocr import ocr_page
-from unredact.pipeline.font_detect import detect_font_for_line, CANDIDATE_FONTS, _find_font_path
+from unredact.pipeline.font_detect import detect_font_for_line, align_text_to_page, CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.solver import build_constraint, SolveResult
 from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary
 from unredact.pipeline.word_filter import _get_emails
@@ -182,19 +182,37 @@ def _run_analysis(page_img: Image.Image, rx: int, ry: int, rw: int, rh: int) -> 
     segments = []
     gap = {"x": rx, "w": rw}
 
-    left_chars = [c for c in best_line.chars if c.x + c.w <= rx]
-    right_chars = [c for c in best_line.chars if c.x >= rx + rw]
+    # Use center-point filtering to avoid cutting off chars near the redaction edge.
+    # Old filter (c.x + c.w <= rx) missed chars like "nt" in "Sent" that partially
+    # overlap the redaction box.
+    left_chars = [c for c in best_line.chars if c.x + c.w / 2 < rx]
+    right_chars = [c for c in best_line.chars if c.x + c.w / 2 > rx + rw]
 
     left_text = "".join(c.text for c in left_chars).rstrip()
     right_text = "".join(c.text for c in right_chars).lstrip()
 
     pil_font = font_match.to_pil_font()
+
+    # Use pixel alignment to find the exact position where the left text
+    # matches the page image, instead of relying on OCR positions.
+    import numpy as np
     if left_text:
-        left_rendered_width = pil_font.getlength(left_text)
-        offset_x = float(rx - left_rendered_width - best_line.x)
+        # Crop a region around where the left text should be
+        text_region_x1 = max(0, best_line.x - 20)
+        text_region_x2 = min(line_crop.width, rx + 20)
+        text_region_y1 = max(0, best_line.y - 10)
+        text_region_y2 = min(line_crop.height, best_line.y + best_line.h + 10)
+        text_crop = np.array(line_crop.convert("L").crop(
+            (text_region_x1, text_region_y1, text_region_x2, text_region_y2)
+        ))
+        align_dx, align_dy = align_text_to_page(left_text, pil_font, text_crop)
+        # Convert from crop-relative to line-relative offset.
+        # Frontend renders at (line.x + offset_x, line.y + offset_y).
+        offset_x = float(text_region_x1 + align_dx - best_line.x)
+        offset_y = float(text_region_y1 + align_dy - best_line.y)
     else:
         offset_x = 0.0
-    offset_y = 0.0
+        offset_y = 0.0
 
     if left_text:
         lx = left_chars[0].x
