@@ -17,9 +17,8 @@ from PIL import Image, ImageFont
 from sse_starlette.sse import EventSourceResponse
 
 from unredact.pipeline.rasterize import rasterize_pdf
-from unredact.pipeline.detect_redactions import spot_redaction
-from unredact.pipeline.ocr import ocr_page, OcrLine
-from unredact.pipeline.font_detect import detect_font_for_line, detect_font_for_line_from_crop, align_text_to_page, CANDIDATE_FONTS, _find_font_path
+from unredact.pipeline.font_detect import CANDIDATE_FONTS, _find_font_path
+from unredact.pipeline.analyze_page import analyze_page
 from unredact.pipeline.solver import build_constraint, SolveResult
 from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary
 from unredact.pipeline.word_filter import _get_emails
@@ -92,7 +91,7 @@ async def upload_pdf(file: UploadFile):
     for i, page_img in enumerate(pages, start=1):
         page_data[i] = {
             "original": page_img,
-            "redactions": [],
+            "analysis": None,
         }
 
     _docs[doc_id] = {
@@ -126,6 +125,46 @@ async def get_font(font_id: str):
     return Response(content=path.read_bytes(), media_type="font/ttf")
 
 
+@app.get("/api/doc/{doc_id}/analyze")
+async def analyze_doc(doc_id: str):
+    """SSE endpoint that runs analysis on all pages and streams progress."""
+    doc = _docs.get(doc_id)
+    if not doc:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    async def event_generator():
+        for page_num, pd in doc["pages"].items():
+            page_img = pd["original"]
+            analysis = await analyze_page(page_img)
+            pd["analysis"] = analysis
+
+            redactions_json = []
+            for r in analysis.redactions:
+                font_id = _make_font_id(r.font.font_name)
+                segments = []
+                if r.left_text:
+                    segments.append({"text": r.left_text})
+                if r.right_text:
+                    segments.append({"text": r.right_text})
+
+                redactions_json.append({
+                    "id": r.box.id,
+                    "x": r.box.x, "y": r.box.y,
+                    "w": r.box.w, "h": r.box.h,
+                })
+
+            yield json.dumps({
+                "event": "page_complete",
+                "page": page_num,
+                "redaction_count": len(analysis.redactions),
+                "redactions": redactions_json,
+            })
+
+        yield json.dumps({"event": "done"})
+
+    return EventSourceResponse(event_generator())
+
+
 @app.get("/api/doc/{doc_id}/page/{page}/data")
 async def get_page_data(doc_id: str, page: int):
     doc = _docs.get(doc_id)
@@ -133,194 +172,45 @@ async def get_page_data(doc_id: str, page: int):
         return JSONResponse({"error": "not found"}, status_code=404)
 
     pd = doc["pages"][page]
-    redactions_json = [
-        {"id": r.id, "x": r.x, "y": r.y, "w": r.w, "h": r.h}
-        for r in pd["redactions"]
-    ]
+    analysis = pd.get("analysis")
+    if analysis is None:
+        return {"redactions": []}
+
+    redactions_json = []
+    for r in analysis.redactions:
+        font_id = _make_font_id(r.font.font_name)
+        segments = []
+        if r.left_text:
+            segments.append({"text": r.left_text})
+        if r.right_text:
+            segments.append({"text": r.right_text})
+
+        redactions_json.append({
+            "id": r.box.id,
+            "x": r.box.x, "y": r.box.y,
+            "w": r.box.w, "h": r.box.h,
+            "analysis": {
+                "segments": segments,
+                "gap": {"x": r.box.x, "w": r.box.w},
+                "font": {
+                    "name": r.font.font_name,
+                    "id": font_id,
+                    "size": r.font.font_size,
+                    "score": r.font.score,
+                },
+                "line": {
+                    "x": r.line.x,
+                    "y": r.line.y,
+                    "w": r.line.w,
+                    "h": r.line.h,
+                    "text": r.line.text,
+                },
+                "offset_x": r.offset_x,
+                "offset_y": r.offset_y,
+            },
+        })
+
     return {"redactions": redactions_json}
-
-
-class AnalyzeRequest(BaseModel):
-    doc_id: str
-    page: int
-    redaction: dict  # {x, y, w, h}
-
-
-def _run_analysis(page_img: Image.Image, rx: int, ry: int, rw: int, rh: int) -> dict | None:
-    """Run OCR + font detection for a redaction box. Returns analysis dict or None."""
-    # Use wider padding to capture neighboring lines for font detection
-    # (the line containing the redaction has corrupted OCR and pixel data).
-    pad_y = rh * 3
-    crop_y1 = max(0, ry - pad_y)
-    crop_y2 = min(page_img.height, ry + rh + pad_y)
-    line_crop = page_img.crop((0, crop_y1, page_img.width, crop_y2))
-
-    lines = ocr_page(line_crop)
-    if not lines:
-        return None
-
-    redaction_cy = (ry - crop_y1) + rh / 2
-    best_line = min(lines, key=lambda l: abs((l.y + l.h / 2) - redaction_cy))
-
-    # For font detection, use the non-redacted portion of the SAME line.
-    # Neighbor lines may have different fonts/sizes (e.g. email header vs body).
-    import numpy as np
-    font_crop = None
-    font_scoring_line = None
-    red_x_local = rx  # redaction x in line_crop coords (crop is full-width)
-
-    # Try left portion of the line (before redaction)
-    left_end = max(best_line.x, min(red_x_local, best_line.x + best_line.w))
-    left_width = left_end - best_line.x
-    if left_width >= 50:
-        font_crop = np.array(line_crop.convert("L").crop((
-            best_line.x, best_line.y,
-            left_end, best_line.y + best_line.h,
-        )))
-        font_scoring_line = OcrLine(
-            chars=[c for c in best_line.chars if c.x + c.w / 2 < red_x_local],
-            x=0, y=0, w=left_width, h=best_line.h,
-        )
-
-    # If left too narrow, try right portion (after redaction)
-    if font_crop is None:
-        right_start = min(red_x_local + rw, best_line.x + best_line.w)
-        right_width = (best_line.x + best_line.w) - right_start
-        if right_width >= 50:
-            font_crop = np.array(line_crop.convert("L").crop((
-                right_start, best_line.y,
-                best_line.x + best_line.w, best_line.y + best_line.h,
-            )))
-            font_scoring_line = OcrLine(
-                chars=[c for c in best_line.chars if c.x + c.w / 2 > red_x_local + rw],
-                x=0, y=0, w=right_width, h=best_line.h,
-            )
-
-    if font_crop is not None and font_scoring_line is not None and len(font_scoring_line.text.strip()) >= 3:
-        font_match = detect_font_for_line_from_crop(font_scoring_line, font_crop)
-    else:
-        # Fall back to nearest clean neighbor line
-        red_y1_local = ry - crop_y1
-        red_y2_local = ry + rh - crop_y1
-        clean_lines = [
-            line for line in lines
-            if not (line.y < red_y2_local and line.y + line.h > red_y1_local)
-            and len(line.text.strip()) >= 5
-        ]
-        if clean_lines:
-            font_line = min(clean_lines, key=lambda l: abs((l.y + l.h / 2) - redaction_cy))
-        else:
-            font_line = best_line
-        font_match = detect_font_for_line(font_line, line_crop)
-
-    segments = []
-    gap = {"x": rx, "w": rw}
-
-    # Use center-point filtering to avoid cutting off chars near the redaction edge.
-    # Old filter (c.x + c.w <= rx) missed chars like "nt" in "Sent" that partially
-    # overlap the redaction box.
-    left_chars = [c for c in best_line.chars if c.x + c.w / 2 < rx]
-    right_chars = [c for c in best_line.chars if c.x + c.w / 2 > rx + rw]
-
-    left_text = "".join(c.text for c in left_chars).rstrip()
-    right_text = "".join(c.text for c in right_chars).lstrip()
-
-    pil_font = font_match.to_pil_font()
-
-    # Use pixel alignment to find the exact position where the left text
-    # matches the page image, instead of relying on OCR positions.
-    if left_text:
-        # Crop a region around where the left text should be
-        text_region_x1 = max(0, best_line.x - 20)
-        text_region_x2 = min(line_crop.width, rx + 20)
-        text_region_y1 = max(0, best_line.y - 10)
-        text_region_y2 = min(line_crop.height, best_line.y + best_line.h + 10)
-        text_crop = np.array(line_crop.convert("L").crop(
-            (text_region_x1, text_region_y1, text_region_x2, text_region_y2)
-        ))
-        align_dx, align_dy = align_text_to_page(left_text, pil_font, text_crop)
-        # Convert from crop-relative to line-relative offset.
-        # Frontend renders at (line.x + offset_x, line.y + offset_y).
-        offset_x = float(text_region_x1 + align_dx - best_line.x)
-        offset_y = float(text_region_y1 + align_dy - best_line.y)
-    else:
-        offset_x = 0.0
-        offset_y = 0.0
-
-    if left_text:
-        lx = left_chars[0].x
-        lw = (left_chars[-1].x + left_chars[-1].w) - lx
-        segments.append({"text": left_text, "x": lx, "w": lw})
-    if right_text:
-        rx2 = right_chars[0].x
-        rw2 = (right_chars[-1].x + right_chars[-1].w) - rx2
-        segments.append({"text": right_text, "x": rx2, "w": rw2})
-
-    chars_json = [
-        {"text": c.text, "x": c.x, "y": c.y + crop_y1, "w": c.w, "h": c.h, "conf": c.conf}
-        for c in best_line.chars
-    ]
-
-    return {
-        "segments": segments,
-        "gap": gap,
-        "font": {
-            "name": font_match.font_name,
-            "id": _make_font_id(font_match.font_name),
-            "size": font_match.font_size,
-            "score": font_match.score,
-        },
-        "line": {
-            "x": best_line.x,
-            "y": best_line.y + crop_y1,
-            "w": best_line.w,
-            "h": best_line.h,
-            "text": best_line.text,
-        },
-        "chars": chars_json,
-        "offset_x": round(offset_x, 1),
-        "offset_y": round(offset_y, 1),
-    }
-
-
-@app.post("/api/redaction/analyze")
-async def analyze_redaction(req: AnalyzeRequest):
-    doc = _docs.get(req.doc_id)
-    if not doc or req.page not in doc["pages"]:
-        return JSONResponse({"error": "not found"}, status_code=404)
-
-    page_img = doc["pages"][req.page]["original"]
-    rx, ry, rw, rh = req.redaction["x"], req.redaction["y"], req.redaction["w"], req.redaction["h"]
-
-    result = _run_analysis(page_img, rx, ry, rw, rh)
-    if result is None:
-        return JSONResponse({"error": "no text detected near redaction"}, status_code=422)
-    return result
-
-
-class SpotRequest(BaseModel):
-    doc_id: str
-    page: int
-    click_x: int
-    click_y: int
-
-
-@app.post("/api/redaction/spot")
-async def spot_redaction_endpoint(req: SpotRequest):
-    doc = _docs.get(req.doc_id)
-    if not doc or req.page not in doc["pages"]:
-        return JSONResponse({"error": "not found"}, status_code=404)
-
-    page_img = doc["pages"][req.page]["original"]
-    redaction = spot_redaction(page_img, req.click_x, req.click_y)
-    if redaction is None:
-        return JSONResponse({"error": "no_redaction_found"}, status_code=422)
-
-    result = _run_analysis(page_img, redaction.x, redaction.y, redaction.w, redaction.h)
-    response = {"box": {"x": redaction.x, "y": redaction.y, "w": redaction.w, "h": redaction.h}}
-    if result:
-        response.update(result)
-    return response
 
 
 # In-memory dictionary store
