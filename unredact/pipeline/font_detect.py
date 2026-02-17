@@ -258,6 +258,22 @@ def _fine_search(line: OcrLine, line_crop: np.ndarray, coarse: FontMatch) -> Fon
     return best
 
 
+def detect_font_for_line_from_crop(
+    line: OcrLine,
+    line_crop: np.ndarray,
+) -> FontMatch:
+    """Detect the best font given a pre-cropped grayscale numpy array.
+
+    Use this when you already have a clean crop of the line region
+    (e.g. the non-redacted portion of a line). The line's x/y should
+    be 0,0 (crop-relative coordinates).
+    """
+    best = _full_search(line, line_crop)
+    if best is None:
+        raise RuntimeError("No matching font found. Check system fonts.")
+    return _fine_search(line, line_crop, best)
+
+
 def detect_font_for_line(
     line: OcrLine,
     page_image: Image.Image,

@@ -18,8 +18,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from unredact.pipeline.rasterize import rasterize_pdf
 from unredact.pipeline.detect_redactions import spot_redaction
-from unredact.pipeline.ocr import ocr_page
-from unredact.pipeline.font_detect import detect_font_for_line, align_text_to_page, CANDIDATE_FONTS, _find_font_path
+from unredact.pipeline.ocr import ocr_page, OcrLine
+from unredact.pipeline.font_detect import detect_font_for_line, detect_font_for_line_from_crop, align_text_to_page, CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.solver import build_constraint, SolveResult
 from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary
 from unredact.pipeline.word_filter import _get_emails
@@ -162,22 +162,56 @@ def _run_analysis(page_img: Image.Image, rx: int, ry: int, rw: int, rh: int) -> 
     redaction_cy = (ry - crop_y1) + rh / 2
     best_line = min(lines, key=lambda l: abs((l.y + l.h / 2) - redaction_cy))
 
-    # For font detection, prefer a nearby line that does NOT overlap the
-    # redaction box — the redaction's dark pixels and OCR artifacts make
-    # pixel-based scoring unreliable on the redaction line itself.
-    red_y1_local = ry - crop_y1
-    red_y2_local = ry + rh - crop_y1
-    clean_lines = [
-        line for line in lines
-        if not (line.y < red_y2_local and line.y + line.h > red_y1_local)
-        and len(line.text.strip()) >= 5
-    ]
-    if clean_lines:
-        font_line = min(clean_lines, key=lambda l: abs((l.y + l.h / 2) - redaction_cy))
-    else:
-        font_line = best_line
+    # For font detection, use the non-redacted portion of the SAME line.
+    # Neighbor lines may have different fonts/sizes (e.g. email header vs body).
+    import numpy as np
+    font_crop = None
+    font_scoring_line = None
+    red_x_local = rx  # redaction x in line_crop coords (crop is full-width)
 
-    font_match = detect_font_for_line(font_line, line_crop)
+    # Try left portion of the line (before redaction)
+    left_end = max(best_line.x, min(red_x_local, best_line.x + best_line.w))
+    left_width = left_end - best_line.x
+    if left_width >= 50:
+        font_crop = np.array(line_crop.convert("L").crop((
+            best_line.x, best_line.y,
+            left_end, best_line.y + best_line.h,
+        )))
+        font_scoring_line = OcrLine(
+            chars=[c for c in best_line.chars if c.x + c.w / 2 < red_x_local],
+            x=0, y=0, w=left_width, h=best_line.h,
+        )
+
+    # If left too narrow, try right portion (after redaction)
+    if font_crop is None:
+        right_start = min(red_x_local + rw, best_line.x + best_line.w)
+        right_width = (best_line.x + best_line.w) - right_start
+        if right_width >= 50:
+            font_crop = np.array(line_crop.convert("L").crop((
+                right_start, best_line.y,
+                best_line.x + best_line.w, best_line.y + best_line.h,
+            )))
+            font_scoring_line = OcrLine(
+                chars=[c for c in best_line.chars if c.x + c.w / 2 > red_x_local + rw],
+                x=0, y=0, w=right_width, h=best_line.h,
+            )
+
+    if font_crop is not None and font_scoring_line is not None and len(font_scoring_line.text.strip()) >= 3:
+        font_match = detect_font_for_line_from_crop(font_scoring_line, font_crop)
+    else:
+        # Fall back to nearest clean neighbor line
+        red_y1_local = ry - crop_y1
+        red_y2_local = ry + rh - crop_y1
+        clean_lines = [
+            line for line in lines
+            if not (line.y < red_y2_local and line.y + line.h > red_y1_local)
+            and len(line.text.strip()) >= 5
+        ]
+        if clean_lines:
+            font_line = min(clean_lines, key=lambda l: abs((l.y + l.h / 2) - redaction_cy))
+        else:
+            font_line = best_line
+        font_match = detect_font_for_line(font_line, line_crop)
 
     segments = []
     gap = {"x": rx, "w": rw}
@@ -195,7 +229,6 @@ def _run_analysis(page_img: Image.Image, rx: int, ry: int, rw: int, rh: int) -> 
 
     # Use pixel alignment to find the exact position where the left text
     # matches the page image, instead of relying on OCR positions.
-    import numpy as np
     if left_text:
         # Crop a region around where the left text should be
         text_region_x1 = max(0, best_line.x - 20)
