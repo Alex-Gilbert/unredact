@@ -1,9 +1,33 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+:root {
+  --bg-base: #1a1a2e;
+  --bg-surface: #16213e;
+  --bg-input: #0a1628;
+  --bg-panel: #111;
+  --border: #0f3460;
+  --border-light: #1a3a6e;
+  --border-subtle: #333;
+  --text: #e0e0e0;
+  --text-dim: #aaa;
+  --text-muted: #888;
+  --accent: #00d474;
+  --accent-hover: #00ff8a;
+  --red: #d32f2f;
+  --yellow: #f9a825;
+  --accept: #ffc800;
+  --accept-hover: #ffda44;
+  --blue: #42a5f5;
+  --orange: #e65100;
+  --purple: #7b1fa2;
+  --red-light: #ef5350;
+  --preview: #b8860b;
+}
+
 body {
   font-family: system-ui, -apple-system, sans-serif;
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: var(--bg-base);
+  color: var(--text);
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -12,20 +36,20 @@ body {
 
 header {
   padding: 1rem 2rem;
-  background: #16213e;
-  border-bottom: 2px solid #0f3460;
+  background: var(--bg-surface);
+  border-bottom: 2px solid var(--border);
 }
 
 header h1 {
   font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: 0.2em;
-  color: #00d474;
+  color: var(--accent);
 }
 
 .subtitle {
   font-size: 0.85rem;
-  color: #888;
+  color: var(--text-muted);
   margin-top: 0.25rem;
 }
 
@@ -38,7 +62,7 @@ main {
 }
 
 #drop-zone {
-  border: 2px dashed #0f3460;
+  border: 2px dashed var(--border);
   border-radius: 12px;
   padding: 4rem;
   text-align: center;
@@ -49,11 +73,11 @@ main {
 }
 
 #drop-zone:hover, #drop-zone.dragover {
-  border-color: #00d474;
+  border-color: var(--accent);
   background: rgba(0, 212, 116, 0.05);
 }
 
-#drop-zone p { font-size: 1.1rem; color: #aaa; }
+#drop-zone p { font-size: 1.1rem; color: var(--text-dim); }
 
 /* Controls bar */
 #controls {
@@ -62,14 +86,14 @@ main {
   gap: 1rem;
   margin-bottom: 0.75rem;
   padding: 0.5rem 1rem;
-  background: #16213e;
+  background: var(--bg-surface);
   border-radius: 8px;
   flex-shrink: 0;
 }
 
 #controls button {
-  background: #0f3460;
-  color: #e0e0e0;
+  background: var(--border);
+  color: var(--text);
   border: none;
   padding: 0.4rem 0.8rem;
   border-radius: 4px;
@@ -84,13 +108,13 @@ main {
 .controls-sep {
   width: 1px;
   height: 1.2rem;
-  background: #0f3460;
+  background: var(--border);
   flex-shrink: 0;
 }
 
 #zoom-level {
   font-size: 0.8rem;
-  color: #00d474;
+  color: var(--accent);
   min-width: 3rem;
   text-align: center;
 }
@@ -114,7 +138,7 @@ main {
 #left-panel {
   width: 280px;
   flex-shrink: 0;
-  background: #16213e;
+  background: var(--bg-surface);
   border-radius: 8px;
   overflow-y: auto;
 }
@@ -136,7 +160,7 @@ main {
 }
 
 .redaction-item.active {
-  border-left-color: #00d474;
+  border-left-color: var(--accent);
   background: rgba(0, 212, 116, 0.1);
 }
 
@@ -150,7 +174,7 @@ main {
 .redaction-num {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #aaa;
+  color: var(--text-dim);
 }
 
 .redaction-status {
@@ -163,33 +187,33 @@ main {
 }
 
 .redaction-status.status-unanalyzed {
-  color: #888;
+  color: var(--text-muted);
   background: rgba(128, 128, 128, 0.15);
 }
 
 .redaction-status.status-analyzing {
-  color: #f9a825;
+  color: var(--yellow);
   background: rgba(249, 168, 37, 0.15);
 }
 
 .redaction-status.status-analyzed {
-  color: #42a5f5;
+  color: var(--blue);
   background: rgba(66, 165, 245, 0.15);
 }
 
 .redaction-status.status-solved {
-  color: #00d474;
+  color: var(--accent);
   background: rgba(0, 212, 116, 0.15);
 }
 
 .redaction-status.status-error {
-  color: #ef5350;
+  color: var(--red-light);
   background: rgba(239, 83, 80, 0.15);
 }
 
 .redaction-info {
   font-size: 0.75rem;
-  color: #aaa;
+  color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -200,7 +224,7 @@ main {
 #right-panel {
   flex: 1;
   overflow: hidden;
-  background: #111;
+  background: var(--bg-panel);
   border-radius: 8px;
   cursor: grab;
   position: relative;
@@ -231,7 +255,7 @@ main {
 }
 
 .loading {
-  color: #00d474;
+  color: var(--accent);
   text-align: center;
   padding: 2rem;
   font-size: 1.2rem;
@@ -247,7 +271,7 @@ main {
   display: flex;
   flex-direction: column;
   background: rgba(20, 20, 40, 0.95);
-  border: 1px solid #333;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 12px;
   z-index: 30;
@@ -265,14 +289,14 @@ main {
 
 .popover-title {
   font-weight: bold;
-  color: #00d474;
+  color: var(--accent);
   font-size: 0.9rem;
 }
 
 .popover-close-btn {
-  background: #0f3460;
-  color: #e0e0e0;
-  border: 1px solid #1a3a6e;
+  background: var(--border);
+  color: var(--text);
+  border: 1px solid var(--border-light);
   border-radius: 4px;
   width: 1.5rem;
   height: 1.5rem;
@@ -297,13 +321,13 @@ main {
   align-items: center;
   gap: 8px;
   font-size: 0.8rem;
-  color: #aaa;
+  color: var(--text-dim);
 }
 
 .solve-controls select,
 .solve-controls input {
-  background: #1a1a2e;
-  border: 1px solid #333;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
   color: #eee;
   border-radius: 4px;
   padding: 2px 4px;
@@ -318,7 +342,7 @@ main {
 }
 
 .solve-btn {
-  background: #00d474;
+  background: var(--accent);
   color: #000;
   border: none;
   border-radius: 4px;
@@ -328,21 +352,21 @@ main {
 }
 
 .solve-btn:hover {
-  background: #00ff8a;
+  background: var(--accent-hover);
 }
 
 .solve-btn.accept {
-  background: #ffc800;
+  background: var(--accept);
   color: #000;
 }
 
 .solve-btn.accept:hover {
-  background: #ffda44;
+  background: var(--accept-hover);
 }
 
 #solve-status {
   font-size: 0.75rem;
-  color: #aaa;
+  color: var(--text-dim);
 }
 
 #solve-results {
@@ -367,21 +391,21 @@ main {
 }
 
 .solve-result:hover {
-  border-color: #00d474;
+  border-color: var(--accent);
   background: rgba(0, 212, 116, 0.2);
 }
 
 .solve-result.active {
-  border-color: #ffc800;
+  border-color: var(--accept);
   background: rgba(255, 200, 0, 0.2);
 }
 
 .solve-result .result-text {
-  color: #00d474;
+  color: var(--accent);
 }
 
 .solve-result .result-error {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.75rem;
 }
 
@@ -405,22 +429,22 @@ main {
 }
 
 .assoc-badge.tier-1 {
-  background: #d32f2f;
+  background: var(--red);
   color: #fff;
 }
 
 .assoc-badge.tier-2 {
-  background: #e65100;
+  background: var(--orange);
   color: #fff;
 }
 
 .assoc-badge.tier-3 {
-  background: #f9a825;
+  background: var(--yellow);
   color: #000;
 }
 
 .assoc-badge.victim {
-  background: #7b1fa2;
+  background: var(--purple);
   color: #fff;
   cursor: default;
   pointer-events: none;
@@ -434,7 +458,7 @@ main {
   right: 12px;
   max-height: 60%;
   background: rgba(16, 16, 32, 0.97);
-  border: 1px solid #444;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 10px;
   z-index: 40;
@@ -447,15 +471,15 @@ main {
   justify-content: space-between;
   align-items: center;
   font-weight: bold;
-  color: #00d474;
+  color: var(--accent);
   margin-bottom: 8px;
   font-size: 0.85rem;
 }
 
 .assoc-detail-close {
-  background: #0f3460;
-  color: #e0e0e0;
-  border: 1px solid #1a3a6e;
+  background: var(--border);
+  color: var(--text);
+  border: 1px solid var(--border-light);
   border-radius: 4px;
   width: 1.5rem;
   height: 1.5rem;
@@ -493,13 +517,13 @@ main {
 }
 
 .assoc-detail-name {
-  color: #e0e0e0;
+  color: var(--text);
   font-weight: 600;
   font-size: 0.85rem;
 }
 
 .assoc-detail-meta {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.7rem;
   margin-top: 2px;
 }
@@ -518,9 +542,9 @@ main {
   background: rgba(22, 33, 62, 0.95);
   backdrop-filter: blur(6px);
   border-radius: 6px;
-  border: 1px solid #0f3460;
+  border: 1px solid var(--border);
   font-size: 0.75rem;
-  color: #aaa;
+  color: var(--text-dim);
   flex-wrap: wrap;
 }
 
@@ -531,9 +555,9 @@ main {
 }
 
 #font-toolbar select {
-  background: #0a1628;
-  color: #e0e0e0;
-  border: 1px solid #1a3a6e;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border-light);
   border-radius: 3px;
   padding: 2px 4px;
   font-size: 0.75rem;
@@ -542,14 +566,14 @@ main {
 .toolbar-sep {
   width: 1px;
   height: 1.2rem;
-  background: #0f3460;
+  background: var(--border);
   flex-shrink: 0;
 }
 
 .tb-btn {
-  background: #0f3460;
-  color: #e0e0e0;
-  border: 1px solid #1a3a6e;
+  background: var(--border);
+  color: var(--text);
+  border: 1px solid var(--border-light);
   border-radius: 3px;
   width: 1.4rem;
   height: 1.4rem;
@@ -562,7 +586,7 @@ main {
 }
 
 .tb-btn:hover {
-  background: #1a3a6e;
+  background: var(--border-light);
 }
 
 .size-control, .pos-control, .gap-control {
@@ -573,7 +597,7 @@ main {
 
 #size-slider {
   width: 60px;
-  accent-color: #00d474;
+  accent-color: var(--accent);
 }
 
 .dpad {
@@ -591,7 +615,7 @@ main {
 
 .pos-display {
   font-size: 0.65rem;
-  color: #00d474;
+  color: var(--accent);
   min-width: 3rem;
   text-align: center;
 }
@@ -610,16 +634,16 @@ main {
   background: rgba(22, 33, 62, 0.95);
   backdrop-filter: blur(6px);
   border-radius: 6px;
-  border: 1px solid #0f3460;
+  border: 1px solid var(--border);
   font-size: 0.8rem;
 }
 
 .seg-input {
   flex: 1;
   min-width: 3rem;
-  background: #0a1628;
-  color: #e0e0e0;
-  border: 1px solid #1a3a6e;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border-light);
   border-radius: 4px;
   padding: 0.3rem 0.4rem;
   font-family: monospace;
@@ -628,13 +652,13 @@ main {
 
 .seg-input:focus {
   outline: none;
-  border-color: #00d474;
+  border-color: var(--accent);
 }
 
 .redaction-marker {
   flex-shrink: 0;
   padding: 0.25rem 0.4rem;
-  background: #d32f2f;
+  background: var(--red);
   color: #fff;
   font-size: 0.65rem;
   font-weight: 700;
@@ -642,7 +666,7 @@ main {
 }
 
 .redaction-marker.preview {
-  background: #b8860b;
+  background: var(--preview);
   color: #ffe082;
 }
 
@@ -662,17 +686,17 @@ main {
 
 .toast {
   background: rgba(30, 30, 50, 0.95);
-  color: #e0e0e0;
+  color: var(--text);
   padding: 0.6rem 1.2rem;
   border-radius: 6px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-subtle);
   font-size: 0.85rem;
   backdrop-filter: blur(6px);
   animation: toast-in 0.2s ease-out, toast-out 0.3s ease-in 2.5s forwards;
 }
 
 .toast.error {
-  border-color: #d32f2f;
+  border-color: var(--red);
   color: #ef9a9a;
 }
 
