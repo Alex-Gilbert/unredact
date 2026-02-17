@@ -160,7 +160,7 @@ def _run_analysis(page_img: Image.Image, rx: int, ry: int, rw: int, rh: int) -> 
     redaction_cy = (ry - crop_y1) + rh / 2
     best_line = min(lines, key=lambda l: abs((l.y + l.h / 2) - redaction_cy))
 
-    font_match = detect_font_for_line(best_line)
+    font_match = detect_font_for_line(best_line, line_crop)
 
     segments = []
     gap = {"x": rx, "w": rw}
