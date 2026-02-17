@@ -1371,123 +1371,48 @@ function showAssocDetail(assocMatches, anchorEl) {
   setTimeout(() => document.addEventListener("click", closeOnOutside, true), 0);
 }
 
-// ── Manual redaction marking (Shift+drag) ──
+// ── Ctrl+drag offset / Shift+drag gap width ──
 
-let drawDrag = null;
-
-canvas.addEventListener("mousedown", (e) => {
-  if (!e.shiftKey || e.ctrlKey || e.button !== 0) return;
-
-  const rect = rightPanel.getBoundingClientRect();
-  const sx = e.clientX - rect.left;
-  const sy = e.clientY - rect.top;
-  const doc = screenToDoc(sx, sy);
-
-  drawDrag = { startX: doc.x, startY: doc.y };
-  e.stopPropagation();
-  e.preventDefault();
-}, { capture: true }); // capture so it fires before the regular hit-test handler
-
-window.addEventListener("mousemove", (e) => {
-  if (!drawDrag) return;
-
-  const rect = rightPanel.getBoundingClientRect();
-  const sx = e.clientX - rect.left;
-  const sy = e.clientY - rect.top;
-  const doc = screenToDoc(sx, sy);
-
-  // Re-render canvas with a preview rectangle
-  renderCanvas();
-  const x = Math.min(drawDrag.startX, doc.x);
-  const y = Math.min(drawDrag.startY, doc.y);
-  const w = Math.abs(doc.x - drawDrag.startX);
-  const h = Math.abs(doc.y - drawDrag.startY);
-
-  ctx.strokeStyle = "rgba(255, 100, 100, 0.8)";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([6, 3]);
-  ctx.strokeRect(x, y, w, h);
-  ctx.setLineDash([]);
-});
-
-window.addEventListener("mouseup", (e) => {
-  if (!drawDrag) return;
-
-  const rect = rightPanel.getBoundingClientRect();
-  const sx = e.clientX - rect.left;
-  const sy = e.clientY - rect.top;
-  const doc = screenToDoc(sx, sy);
-
-  const x = Math.round(Math.min(drawDrag.startX, doc.x));
-  const y = Math.round(Math.min(drawDrag.startY, doc.y));
-  const w = Math.round(Math.abs(doc.x - drawDrag.startX));
-  const h = Math.round(Math.abs(doc.y - drawDrag.startY));
-
-  drawDrag = null;
-
-  // Only create if large enough
-  if (w < 20 || h < 5) {
-    renderCanvas();
-    return;
-  }
-
-  const id = "m" + Date.now().toString(36);
-  state.redactions[id] = {
-    id, x, y, w, h,
-    page: state.currentPage,
-    status: "unanalyzed",
-    analysis: null,
-    solution: null,
-    preview: null,
-  };
-
-  renderRedactionList();
-  renderCanvas();
-  activateRedaction(id);
-});
-
-// ── Ctrl+drag offset / Ctrl+Shift+drag gap width ──
-
-let ctrlDrag = null;
+let modDrag = null;
 
 canvas.addEventListener("mousedown", (e) => {
-  if (!e.ctrlKey || e.button !== 0) return;
+  if ((!e.ctrlKey && !e.shiftKey) || e.button !== 0) return;
   const r = state.redactions[state.activeRedaction];
   if (!r?.overrides) return;
 
-  ctrlDrag = {
+  modDrag = {
     startX: e.clientX,
     startY: e.clientY,
     startOffsetX: r.overrides.offsetX,
     startOffsetY: r.overrides.offsetY,
     startGapWidth: r.overrides.gapWidth,
-    widthMode: e.shiftKey,
+    widthMode: e.shiftKey && !e.ctrlKey,
   };
   e.stopPropagation();
   e.preventDefault();
 }, { capture: true });
 
 window.addEventListener("mousemove", (e) => {
-  if (!ctrlDrag) return;
+  if (!modDrag) return;
   const r = state.redactions[state.activeRedaction];
   if (!r?.overrides) return;
 
-  const dx = (e.clientX - ctrlDrag.startX) / state.zoom;
-  const dy = (e.clientY - ctrlDrag.startY) / state.zoom;
+  const dx = (e.clientX - modDrag.startX) / state.zoom;
+  const dy = (e.clientY - modDrag.startY) / state.zoom;
 
-  if (ctrlDrag.widthMode) {
-    r.overrides.gapWidth = Math.max(1, ctrlDrag.startGapWidth + dx);
+  if (modDrag.widthMode) {
+    r.overrides.gapWidth = Math.max(1, modDrag.startGapWidth + dx);
     gapValue.textContent = Math.round(r.overrides.gapWidth);
   } else {
-    r.overrides.offsetX = ctrlDrag.startOffsetX + dx;
-    r.overrides.offsetY = ctrlDrag.startOffsetY + dy;
+    r.overrides.offsetX = modDrag.startOffsetX + dx;
+    r.overrides.offsetY = modDrag.startOffsetY + dy;
     updatePosDisplay();
   }
   renderCanvas();
 });
 
 window.addEventListener("mouseup", () => {
-  if (ctrlDrag) ctrlDrag = null;
+  if (modDrag) modDrag = null;
 });
 
 // ── Utility ──
