@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from PIL import Image, ImageFont
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 from unredact.pipeline.ocr import OcrLine
 
@@ -51,6 +52,81 @@ class FontMatch:
 
     def to_pil_font(self) -> ImageFont.FreeTypeFont:
         return ImageFont.truetype(str(self.font_path), self.font_size)
+
+
+def _shift_2d(arr: np.ndarray, dx: int, dy: int) -> np.ndarray:
+    """Shift a 2D boolean array by (dx, dy), filling edges with False."""
+    h, w = arr.shape
+    result = np.zeros_like(arr)
+    # Y slices
+    if dy >= 0:
+        src_y, dst_y = slice(0, h - dy), slice(dy, h)
+    else:
+        src_y, dst_y = slice(-dy, h), slice(0, h + dy)
+    # X slices
+    if dx >= 0:
+        src_x, dst_x = slice(0, w - dx), slice(dx, w)
+    else:
+        src_x, dst_x = slice(-dx, w), slice(0, w + dx)
+    result[dst_y, dst_x] = arr[src_y, src_x]
+    return result
+
+
+def _score_font_line_pixel(
+    font: ImageFont.FreeTypeFont,
+    line: OcrLine,
+    line_crop: np.ndarray,
+) -> float:
+    """Score how well a font matches using pixel overlap.
+
+    Args:
+        font: Candidate PIL font at a specific size.
+        line: OCR'd line with text and bounding box.
+        line_crop: Grayscale numpy array of the line region from the page image.
+
+    Returns:
+        Overlap score from 0.0 to 1.0. Higher is better.
+    """
+    h, w = line_crop.shape
+    if h < 5 or w < 10:
+        return 0.0
+
+    # Binarize page crop (ink pixels = True)
+    page_bin = line_crop < 128
+
+    page_ink = int(page_bin.sum())
+    if page_ink < 10:
+        return 0.0
+
+    # Render line text with this font onto same-size canvas
+    rendered_img = Image.new("L", (w, h), 255)
+    draw = ImageDraw.Draw(rendered_img)
+
+    # Position text so ink aligns with the crop.
+    # line.x, line.y give the line's position within the crop coordinate
+    # system; bbox gives the font's built-in offset from the origin.
+    bbox = font.getbbox(line.text)
+    draw.text((line.x - bbox[0], line.y - bbox[1]), line.text, font=font, fill=0)
+
+    rendered_arr = np.array(rendered_img)
+    rendered_bin = rendered_arr < 128
+
+    rendered_ink = int(rendered_bin.sum())
+    if rendered_ink < 10:
+        return 0.0
+
+    # Try small shifts to find best alignment, using Dice coefficient
+    # to penalise both missing and extra ink.
+    best_score = 0.0
+    total_ink = page_ink + rendered_ink
+    for dy in range(-3, 4):
+        for dx in range(-3, 4):
+            shifted = _shift_2d(rendered_bin, dx, dy)
+            intersection = int((page_bin & shifted).sum())
+            score = 2.0 * intersection / total_ink if total_ink > 0 else 0.0
+            if score > best_score:
+                best_score = score
+    return best_score
 
 
 def _score_font_line(
