@@ -126,48 +126,6 @@ def _score_font_line_pixel(
     return best_score
 
 
-def _score_font_line(
-    font: ImageFont.FreeTypeFont,
-    line: OcrLine,
-) -> float:
-    """Score how well a font matches one line's OCR'd word widths.
-
-    Returns mean absolute error in pixels between rendered and OCR'd
-    word widths. Lower is better.
-    """
-    errors: list[float] = []
-    word = ""
-    word_start_x = -1
-    word_end_x = -1
-
-    for char in line.chars:
-        if char.text == " ":
-            if word and word_start_x >= 0:
-                rendered_bbox = font.getbbox(word)
-                rendered_w = rendered_bbox[2] - rendered_bbox[0]
-                ocr_w = word_end_x - word_start_x
-                if ocr_w > 0:
-                    errors.append(abs(rendered_w - ocr_w))
-            word = ""
-            word_start_x = -1
-        else:
-            if word_start_x < 0:
-                word_start_x = char.x
-            word += char.text
-            word_end_x = char.x + char.w
-
-    # Last word in line
-    if word and word_start_x >= 0:
-        rendered_bbox = font.getbbox(word)
-        rendered_w = rendered_bbox[2] - rendered_bbox[0]
-        ocr_w = word_end_x - word_start_x
-        if ocr_w > 0:
-            errors.append(abs(rendered_w - ocr_w))
-
-    if not errors:
-        return float("inf")
-    return sum(errors) / len(errors)
-
 
 def _full_search(line: OcrLine, line_crop: np.ndarray) -> FontMatch | None:
     """Full search across all candidate fonts and sizes for one line."""
