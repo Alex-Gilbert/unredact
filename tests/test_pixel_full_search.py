@@ -2,7 +2,7 @@
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from unredact.pipeline.font_detect import _find_font_path, _full_search, _fine_search
+from unredact.pipeline.font_detect import _find_font_path, _full_search
 from unredact.pipeline.ocr import OcrChar, OcrLine
 
 

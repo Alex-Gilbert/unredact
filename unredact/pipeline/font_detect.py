@@ -19,9 +19,6 @@ CANDIDATE_FONTS: list[str] = [
     "DejaVu Sans",
 ]
 
-# Size range to search (in pixels at rendering DPI)
-SIZE_RANGE = range(20, 80, 2)
-
 # If the prior's score is within this factor of the best possible score,
 # keep the prior. This avoids flipping fonts on noisy lines.
 PRIOR_BIAS = 1.15
@@ -48,7 +45,7 @@ class FontMatch:
     font_name: str
     font_path: Path
     font_size: int  # in pixels
-    score: float  # lower is better (mean absolute error in px)
+    score: float  # higher is better (pixel overlap, 0.0-1.0)
 
     def to_pil_font(self) -> ImageFont.FreeTypeFont:
         return ImageFont.truetype(str(self.font_path), self.font_size)
