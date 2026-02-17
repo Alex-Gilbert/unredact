@@ -915,6 +915,18 @@ rightPanel.addEventListener("dblclick", async (e) => {
 
     const data = await resp.json();
     const box = data.box;
+
+    // De-duplicate: if a redaction with the same box already exists, just activate it
+    const existingDup = Object.values(state.redactions).find(r =>
+      r.page === state.currentPage &&
+      Math.abs(r.x - box.x) < 3 && Math.abs(r.y - box.y) < 3 &&
+      Math.abs(r.w - box.w) < 3 && Math.abs(r.h - box.h) < 3
+    );
+    if (existingDup) {
+      activateRedaction(existingDup.id);
+      return;
+    }
+
     const id = "m" + Date.now().toString(36);
 
     state.redactions[id] = {

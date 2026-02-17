@@ -17,7 +17,7 @@ from PIL import Image, ImageFont
 from sse_starlette.sse import EventSourceResponse
 
 from unredact.pipeline.rasterize import rasterize_pdf
-from unredact.pipeline.detect_redactions import detect_redactions, spot_redaction
+from unredact.pipeline.detect_redactions import spot_redaction
 from unredact.pipeline.ocr import ocr_page
 from unredact.pipeline.font_detect import detect_font_for_line, CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.solver import build_constraint, SolveResult
