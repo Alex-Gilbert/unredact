@@ -274,6 +274,62 @@ def detect_font_for_line_from_crop(
     return _fine_search(line, line_crop, best)
 
 
+def detect_font_masked(
+    line: OcrLine,
+    page_image: Image.Image,
+    redaction_boxes: list[tuple[int, int, int, int]],
+) -> FontMatch:
+    """Detect the best font by masking redaction boxes to white before scoring.
+
+    Instead of cropping just the unredacted portion of a line (which loses
+    signal from narrow crops and coordinate mismatches), this masks each
+    redaction box to white (255) in the full line crop. The Dice-based pixel
+    scoring naturally ignores the masked (white) regions since they contain
+    no ink pixels.
+
+    Args:
+        line: OCR line with page-relative coordinates.
+        page_image: Full page as a PIL Image (any mode; converted to grayscale).
+        redaction_boxes: List of (rx, ry, rw, rh) rectangles in page-relative
+            coordinates. Each rectangle is painted white before scoring.
+
+    Returns:
+        FontMatch with the best font name, path, size, and score.
+    """
+    # 1. Crop the line region from the page image
+    line_crop = np.array(
+        page_image.convert("L").crop((line.x, line.y, line.x + line.w, line.y + line.h))
+    )
+
+    # 2. Mask each redaction box to white (255) — convert page-relative to crop-relative
+    for rx, ry, rw, rh in redaction_boxes:
+        # Convert from page coordinates to crop-relative coordinates
+        cx = rx - line.x
+        cy = ry - line.y
+
+        # Clip to the crop bounds
+        x0 = max(0, cx)
+        y0 = max(0, cy)
+        x1 = min(line.w, cx + rw)
+        y1 = min(line.h, cy + rh)
+
+        if x0 < x1 and y0 < y1:
+            line_crop[y0:y1, x0:x1] = 255
+
+    # 3. Create a scoring line with crop-relative coordinates (x=0, y=0)
+    scoring_line = OcrLine(
+        chars=line.chars,
+        x=0, y=0,
+        w=line.w, h=line.h,
+    )
+
+    # 4. Full search then fine search
+    best = _full_search(scoring_line, line_crop)
+    if best is None:
+        raise RuntimeError("No matching font found. Check system fonts.")
+    return _fine_search(scoring_line, line_crop, best)
+
+
 def detect_font_for_line(
     line: OcrLine,
     page_image: Image.Image,
