@@ -876,13 +876,79 @@ rightPanel.addEventListener("wheel", (e) => {
   zoomTo(state.zoom * factor, sx, sy, false);
 }, { passive: false });
 
-// Double-click to zoom in
-rightPanel.addEventListener("dblclick", (e) => {
+// Double-click to spot-detect a redaction
+rightPanel.addEventListener("dblclick", async (e) => {
   if (popover.contains(e.target) || fontToolbar.contains(e.target) || textEditBar.contains(e.target)) return;
+  if (!state.docId) return;
+
   const rect = rightPanel.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
-  zoomTo(state.zoom * 2, sx, sy, true);
+  const doc = screenToDoc(sx, sy);
+
+  // If clicking on an existing redaction, just activate it (handled by canvas mousedown)
+  const hit = hitTestRedaction(doc.x, doc.y);
+  if (hit) return;
+
+  const clickX = Math.round(doc.x);
+  const clickY = Math.round(doc.y);
+
+  showToast("Detecting redaction...");
+
+  try {
+    const resp = await fetch("/api/redaction/spot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        doc_id: state.docId,
+        page: state.currentPage,
+        click_x: clickX,
+        click_y: clickY,
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      showToast(err.error === "no_redaction_found" ? "No redaction found at click point" : "Detection failed", "error");
+      return;
+    }
+
+    const data = await resp.json();
+    const box = data.box;
+    const id = "m" + Date.now().toString(36);
+
+    state.redactions[id] = {
+      id,
+      x: box.x,
+      y: box.y,
+      w: box.w,
+      h: box.h,
+      page: state.currentPage,
+      status: data.segments ? "analyzed" : "unanalyzed",
+      analysis: data.segments ? data : null,
+      solution: null,
+      preview: null,
+    };
+
+    if (data.segments) {
+      state.redactions[id].overrides = {
+        fontId: data.font.id,
+        fontSize: data.font.size,
+        offsetX: data.offset_x || 0,
+        offsetY: data.offset_y || 0,
+        gapWidth: data.gap.w,
+        leftText: data.segments.length > 0 ? data.segments[0].text : "",
+        rightText: data.segments.length > 1 ? data.segments[1].text : "",
+      };
+    }
+
+    renderRedactionList();
+    renderCanvas();
+    activateRedaction(id);
+  } catch (e) {
+    console.error("Spot detection error:", e);
+    showToast("Detection failed: " + e.message, "error");
+  }
 });
 
 // ── Click-drag pan ──
