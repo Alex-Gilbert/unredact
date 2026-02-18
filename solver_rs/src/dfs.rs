@@ -1,6 +1,6 @@
 /// Core DFS branch-and-bound solver for string width matching.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Precomputed constraint for the DFS search.
 /// state_allowed[s] = list of charset indices allowed in state s.
@@ -322,6 +322,59 @@ pub fn compute_equiv_classes(wt: &WidthTable, extra: &[&[f64]]) -> EquivClasses 
     EquivClasses { class_of, members, num_classes }
 }
 
+/// Deduplicate state_allowed to one representative per equivalence class.
+pub fn dedup_state_allowed(equiv: &EquivClasses, constraint: &Constraint) -> Vec<Vec<usize>> {
+    constraint.state_allowed.iter().map(|allowed| {
+        let mut seen = HashSet::new();
+        allowed.iter().copied().filter(|&idx| {
+            seen.insert(equiv.class_of[idx])
+        }).collect()
+    }).collect()
+}
+
+/// Build byte→charset_index lookup (ASCII only).
+pub fn build_byte_to_idx(charset: &[char]) -> [usize; 128] {
+    let mut lookup = [0usize; 128];
+    for (i, &c) in charset.iter().enumerate() {
+        lookup[c as usize] = i;
+    }
+    lookup
+}
+
+/// Expand a representative-only path into all class-member variants.
+pub fn expand_match(
+    path: &[u8],
+    equiv: &EquivClasses,
+    charset: &[char],
+    byte_to_idx: &[usize; 128],
+) -> Vec<Vec<u8>> {
+    let mut results: Vec<Vec<u8>> = vec![Vec::with_capacity(path.len())];
+
+    for &byte in path {
+        let idx = byte_to_idx[byte as usize];
+        let class_id = equiv.class_of[idx];
+        let members = &equiv.members[class_id];
+
+        if members.len() == 1 {
+            for r in &mut results {
+                r.push(byte);
+            }
+        } else {
+            let mut new_results = Vec::with_capacity(results.len() * members.len());
+            for existing in &results {
+                for &member_idx in members {
+                    let mut s = existing.clone();
+                    s.push(charset[member_idx] as u8);
+                    new_results.push(s);
+                }
+            }
+            results = new_results;
+        }
+    }
+
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,5 +452,116 @@ mod tests {
         let extra = vec![10.0, 20.0, 30.0]; // different for b(20) and c(30)
         let equiv = compute_equiv_classes(&wt, &[&extra]);
         assert_eq!(equiv.num_classes, 3, "extra column should split b and c");
+    }
+
+    #[test]
+    fn test_dedup_state_allowed() {
+        // charset "abc", b and c equivalent → 2 classes
+        let wt = make_wt(
+            "abc",
+            &[5.0,6.0,6.0, 5.0,6.0,6.0, 5.0,6.0,6.0],
+            &[4.0, 5.0, 5.0],
+            &[0.0, 1.0, 1.0],
+        );
+        let equiv = compute_equiv_classes(&wt, &[]);
+        // Single state allowing all chars
+        let constraint = Constraint {
+            state_allowed: vec![vec![0, 1, 2]],
+            state_next: vec![vec![0, 0, 0]],
+            accept_states: vec![true],
+        };
+        let deduped = dedup_state_allowed(&equiv, &constraint);
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].len(), 2, "should be [a_rep, bc_rep]");
+        assert!(deduped[0].contains(&0)); // a
+        assert!(deduped[0].contains(&1)); // b (representative of {b,c})
+        assert!(!deduped[0].contains(&2)); // c excluded (b is representative)
+    }
+
+    #[test]
+    fn test_dedup_capitalized_constraint() {
+        // charset "aAbB", A and B equivalent (same widths), a and b equivalent
+        let wt = make_wt(
+            "aAbB",
+            &[
+                5.0, 8.0, 5.0, 8.0,  // row a == row b
+                7.0, 10.0, 7.0, 10.0, // row A == row B
+                5.0, 8.0, 5.0, 8.0,  // row b == row a
+                7.0, 10.0, 7.0, 10.0, // row B == row A
+            ],
+            &[4.0, 6.0, 4.0, 6.0],
+            &[0.0, 1.0, 0.0, 1.0],
+        );
+        let equiv = compute_equiv_classes(&wt, &[]);
+        assert_eq!(equiv.num_classes, 2); // {a,b} and {A,B}
+        // Capitalized: state 0 = uppercase [A(1), B(3)], state 1 = lowercase [a(0), b(2)]
+        let constraint = Constraint {
+            state_allowed: vec![vec![1, 3], vec![0, 2]],
+            state_next: vec![vec![-1, 1, -1, 1], vec![1, -1, 1, -1]],
+            accept_states: vec![false, true],
+        };
+        let deduped = dedup_state_allowed(&equiv, &constraint);
+        assert_eq!(deduped[0].len(), 1, "state 0: one uppercase rep");
+        assert_eq!(deduped[1].len(), 1, "state 1: one lowercase rep");
+    }
+
+    #[test]
+    fn test_expand_match_singleton() {
+        let wt = make_wt(
+            "abc",
+            &[5.0,6.0,7.0, 8.0,9.0,10.0, 11.0,12.0,13.0],
+            &[4.0, 5.0, 6.0],
+            &[0.0, 1.0, 2.0],
+        );
+        let equiv = compute_equiv_classes(&wt, &[]);
+        let byte_to_idx = build_byte_to_idx(&wt.charset);
+        // All singletons — expand "ab" → just ["ab"]
+        let path: Vec<u8> = b"ab".to_vec();
+        let expanded = expand_match(&path, &equiv, &wt.charset, &byte_to_idx);
+        assert_eq!(expanded.len(), 1);
+        assert_eq!(expanded[0], b"ab");
+    }
+
+    #[test]
+    fn test_expand_match_multi_member() {
+        let wt = make_wt(
+            "abc",
+            &[5.0,6.0,6.0, 5.0,6.0,6.0, 5.0,6.0,6.0],
+            &[4.0, 5.0, 5.0],
+            &[0.0, 1.0, 1.0],
+        );
+        let equiv = compute_equiv_classes(&wt, &[]);
+        let byte_to_idx = build_byte_to_idx(&wt.charset);
+        // b and c equivalent, representative is b
+        // Path "ab" (DFS placed representative b at position 1)
+        // Expand → "ab", "ac"
+        let path: Vec<u8> = b"ab".to_vec();
+        let mut expanded = expand_match(&path, &equiv, &wt.charset, &byte_to_idx);
+        expanded.sort();
+        assert_eq!(expanded.len(), 2);
+        assert_eq!(expanded[0], b"ab");
+        assert_eq!(expanded[1], b"ac");
+    }
+
+    #[test]
+    fn test_expand_match_multi_position() {
+        let wt = make_wt(
+            "abc",
+            &[5.0,6.0,6.0, 5.0,6.0,6.0, 5.0,6.0,6.0],
+            &[4.0, 5.0, 5.0],
+            &[0.0, 1.0, 1.0],
+        );
+        let equiv = compute_equiv_classes(&wt, &[]);
+        let byte_to_idx = build_byte_to_idx(&wt.charset);
+        // Path "abb" → expand both b positions
+        // → "abb", "abc", "acb", "acc"
+        let path: Vec<u8> = b"abb".to_vec();
+        let mut expanded = expand_match(&path, &equiv, &wt.charset, &byte_to_idx);
+        expanded.sort();
+        assert_eq!(expanded.len(), 4);
+        assert_eq!(expanded[0], b"abb");
+        assert_eq!(expanded[1], b"abc");
+        assert_eq!(expanded[2], b"acb");
+        assert_eq!(expanded[3], b"acc");
     }
 }
