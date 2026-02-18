@@ -21,7 +21,7 @@ from unredact.pipeline.font_detect import CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.analyze_page import analyze_page
 from unredact.pipeline.detect_redactions import spot_redaction
 from unredact.pipeline.solver import build_constraint, SolveResult
-from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary, solve_full_name_dictionary
+from unredact.pipeline.dictionary import solve_dictionary, solve_full_name_dictionary, solve_name_dictionary
 from unredact.pipeline.word_filter import _get_emails
 from unredact.pipeline.width_table import build_width_table, CHARSETS
 
@@ -223,9 +223,6 @@ async def get_page_data(doc_id: str, page: int):
     return {"redactions": redactions_json}
 
 
-# In-memory dictionary store
-_dictionary_store = DictionaryStore()
-
 # Active solve tasks (for cancellation)
 _active_solves: dict[str, bool] = {}
 
@@ -238,10 +235,10 @@ class SolveRequest(BaseModel):
     left_context: str = ""
     right_context: str = ""
     hints: dict = {}
-    mode: str = "enumerate"
-    word_filter: str = "none"  # "none", "words", "names", "both"
-    filter_prefix: str = ""
-    filter_suffix: str = ""
+    mode: str = "name"  # "name", "full_name", "email", "enumerate"
+    word_filter: str = "none"  # only used for enumerate mode
+    known_start: str = ""
+    known_end: str = ""
 
 
 def _build_rust_solve_payload(
@@ -314,9 +311,6 @@ async def solve(req: SolveRequest):
         return JSONResponse({"error": "font not found"}, status_code=404)
 
     font = ImageFont.truetype(str(font_path), req.font_size)
-    charset_name = req.hints.get("charset", "lowercase")
-
-    use_full_name = charset_name in ("full_name_capitalized", "full_name_caps")
 
     solve_id = uuid_mod.uuid4().hex[:12]
     _active_solves[solve_id] = False
@@ -324,27 +318,56 @@ async def solve(req: SolveRequest):
     async def event_generator():
         try:
             found_texts = set()
+            charset_name = req.hints.get("charset", "lowercase")
 
-            if req.mode in ("dictionary", "both"):
-                entries = _dictionary_store.all_entries()
-                if entries:
-                    dict_results = solve_dictionary(
-                        font, entries, req.gap_width_px, req.tolerance_px,
-                        req.left_context, req.right_context,
-                    )
-                    for r in dict_results:
-                        if _active_solves.get(solve_id):
-                            break
-                        found_texts.add(r.text)
-                        yield json.dumps({
-                            "status": "match",
-                            "text": r.text,
-                            "width_px": round(r.width, 2),
-                            "error_px": round(r.error, 2),
-                            "source": "dictionary",
-                        })
+            # Name mode: single-word associate names
+            if req.mode == "name" and not _active_solves.get(solve_id):
+                name_results = solve_name_dictionary(
+                    font, req.gap_width_px, req.tolerance_px,
+                    req.left_context, req.right_context,
+                    casing=charset_name,
+                    known_start=req.known_start,
+                    known_end=req.known_end,
+                )
+                for r in name_results:
+                    if _active_solves.get(solve_id):
+                        break
+                    if r.text in found_texts:
+                        continue
+                    found_texts.add(r.text)
+                    yield json.dumps({
+                        "status": "match",
+                        "text": r.text,
+                        "width_px": round(r.width, 2),
+                        "error_px": round(r.error, 2),
+                        "source": "names",
+                    })
 
-            if req.mode == "emails":
+            # Full name mode: first x last Cartesian product + variants
+            if req.mode == "full_name" and not _active_solves.get(solve_id):
+                fn_results = solve_full_name_dictionary(
+                    font, req.gap_width_px, req.tolerance_px,
+                    req.left_context, req.right_context,
+                    casing=charset_name,
+                    known_start=req.known_start,
+                    known_end=req.known_end,
+                )
+                for r in fn_results:
+                    if _active_solves.get(solve_id):
+                        break
+                    if r.text in found_texts:
+                        continue
+                    found_texts.add(r.text)
+                    yield json.dumps({
+                        "status": "match",
+                        "text": r.text,
+                        "width_px": round(r.width, 2),
+                        "error_px": round(r.error, 2),
+                        "source": "names",
+                    })
+
+            # Email mode
+            if req.mode == "email" and not _active_solves.get(solve_id):
                 entries = _get_emails()
                 if entries:
                     email_results = solve_dictionary(
@@ -363,53 +386,21 @@ async def solve(req: SolveRequest):
                             "source": "emails",
                         })
 
-            # Full-name dictionary solve (associate names)
-            if use_full_name and not _active_solves.get(solve_id):
-                fn_results = solve_full_name_dictionary(
-                    font, req.gap_width_px, req.tolerance_px,
-                    req.left_context, req.right_context,
-                    uppercase_only=(charset_name == "full_name_caps"),
+            # Enumerate mode: Rust backend
+            if req.mode == "enumerate" and not _active_solves.get(solve_id):
+                charset = CHARSETS.get(charset_name, charset_name)
+                constraint = None
+                if charset_name == "capitalized":
+                    charset = CHARSETS["alpha"] + " "
+                    constraint = build_constraint(charset_name, charset)
+                payload = _build_rust_solve_payload(
+                    font, charset, req.gap_width_px, req.tolerance_px,
+                    req.left_context, req.right_context, constraint,
                 )
-                for r in fn_results:
-                    if _active_solves.get(solve_id):
-                        break
-                    if r.text in found_texts:
-                        continue
-                    found_texts.add(r.text)
-                    yield json.dumps({
-                        "status": "match",
-                        "text": r.text,
-                        "width_px": round(r.width, 2),
-                        "error_px": round(r.error, 2),
-                        "source": "names",
-                    })
-
-            if req.mode in ("enumerate", "both") and not _active_solves.get(solve_id):
-                # Build payload and call Rust solver (streaming SSE)
-                if use_full_name:
-                    payload = _build_rust_full_name_payload(
-                        font, req.gap_width_px, req.tolerance_px,
-                        req.left_context, req.right_context,
-                        uppercase_only=(charset_name == "full_name_caps"),
-                    )
-                    payload["filter"] = req.word_filter
-                    payload["filter_prefix"] = req.filter_prefix
-                    payload["filter_suffix"] = req.filter_suffix
-                    url = f"{SOLVER_URL}/solve/full-name"
-                else:
-                    charset = CHARSETS.get(charset_name, charset_name)
-                    constraint = None
-                    if charset_name == "capitalized":
-                        charset = CHARSETS["alpha"] + " "
-                        constraint = build_constraint(charset_name, charset)
-                    payload = _build_rust_solve_payload(
-                        font, charset, req.gap_width_px, req.tolerance_px,
-                        req.left_context, req.right_context, constraint,
-                    )
-                    payload["filter"] = req.word_filter
-                    payload["filter_prefix"] = req.filter_prefix
-                    payload["filter_suffix"] = req.filter_suffix
-                    url = f"{SOLVER_URL}/solve"
+                payload["filter"] = req.word_filter
+                payload["filter_prefix"] = req.known_start
+                payload["filter_suffix"] = req.known_end
+                url = f"{SOLVER_URL}/solve"
 
                 async with httpx.AsyncClient(timeout=None) as client:
                     async with client.stream("POST", url, json=payload) as resp:
@@ -458,26 +449,6 @@ async def cancel_solve(solve_id: str):
         return {"status": "cancelled"}
     return JSONResponse({"error": "solve not found"}, status_code=404)
 
-
-@app.post("/api/dictionary")
-async def upload_dictionary(data: dict):
-    name = data.get("name", "")
-    entries = data.get("entries", [])
-    if not name or not entries:
-        return JSONResponse({"error": "name and entries required"}, status_code=400)
-    _dictionary_store.add(name, entries)
-    return {"status": "ok", "count": len(entries)}
-
-
-@app.get("/api/dictionary")
-async def list_dictionaries():
-    return {"dictionaries": _dictionary_store.list()}
-
-
-@app.delete("/api/dictionary/{name}")
-async def delete_dictionary(name: str):
-    _dictionary_store.remove(name)
-    return {"status": "ok"}
 
 
 @app.get("/api/associates")
