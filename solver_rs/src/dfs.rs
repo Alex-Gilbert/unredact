@@ -1,5 +1,7 @@
 /// Core DFS branch-and-bound solver for string width matching.
 
+use std::collections::HashMap;
+
 /// Precomputed constraint for the DFS search.
 /// state_allowed[s] = list of charset indices allowed in state s.
 /// state_next[s][ci] = next state after placing charset[ci] in state s (-1 = invalid).
@@ -255,4 +257,147 @@ pub fn compute_length_bounds(wt: &WidthTable, target: f64, tolerance: f64) -> (u
     let max_len = ((target + tolerance) / safe_min).ceil().max(1.0) as usize;
 
     (min_len, max_len)
+}
+
+/// Equivalence classes of metrically identical characters.
+pub struct EquivClasses {
+    /// class_of[char_idx] -> class_id
+    pub class_of: Vec<usize>,
+    /// members[class_id] -> Vec<char_idx> (first element is the representative)
+    pub members: Vec<Vec<usize>>,
+    /// Number of equivalence classes (K <= N)
+    pub num_classes: usize,
+}
+
+/// Compute equivalence classes from width table properties.
+///
+/// Two characters are equivalent when they have identical:
+/// - column in width_table (incoming advance from any predecessor)
+/// - row in width_table (outgoing advance to any successor)
+/// - left_edge and right_edge values
+/// - values in any extra columns (e.g. space_advance for full_name mode)
+///
+/// Uses exact float comparison via f64::to_bits() — FreeType values
+/// originate from 26.6 fixed-point, exactly representable as f64.
+pub fn compute_equiv_classes(wt: &WidthTable, extra: &[&[f64]]) -> EquivClasses {
+    let n = wt.n;
+    let sig_len = 2 * n + 2 + extra.len();
+
+    let mut signatures: Vec<Vec<u64>> = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut sig = Vec::with_capacity(sig_len);
+        // Column: advance of char i when preceded by each char p
+        for p in 0..n {
+            sig.push(wt.advance(p, i).to_bits());
+        }
+        // Row: advance of each char f when preceded by char i
+        for f in 0..n {
+            sig.push(wt.advance(i, f).to_bits());
+        }
+        sig.push(wt.left_edge[i].to_bits());
+        sig.push(wt.right_edge[i].to_bits());
+        for col in extra {
+            sig.push(col[i].to_bits());
+        }
+        signatures.push(sig);
+    }
+
+    let mut class_of = vec![0usize; n];
+    let mut members: Vec<Vec<usize>> = Vec::new();
+    let mut sig_to_class: HashMap<Vec<u64>, usize> = HashMap::new();
+
+    for i in 0..n {
+        if let Some(&class_id) = sig_to_class.get(&signatures[i]) {
+            class_of[i] = class_id;
+            members[class_id].push(i);
+        } else {
+            let class_id = members.len();
+            sig_to_class.insert(signatures[i].clone(), class_id);
+            class_of[i] = class_id;
+            members.push(vec![i]);
+        }
+    }
+
+    let num_classes = members.len();
+    EquivClasses { class_of, members, num_classes }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: build a WidthTable from flat data.
+    fn make_wt(charset: &str, table: &[f64], left: &[f64], right: &[f64]) -> WidthTable {
+        WidthTable {
+            charset: charset.chars().collect(),
+            width_table: table.to_vec(),
+            left_edge: left.to_vec(),
+            right_edge: right.to_vec(),
+            n: charset.len(),
+        }
+    }
+
+    #[test]
+    fn test_equiv_classes_with_duplicates() {
+        // charset "abc" where b(1) and c(2) are equivalent:
+        // same column, same row, same left_edge, same right_edge
+        let wt = make_wt(
+            "abc",
+            &[
+                // row a (prev=a): next=a,b,c
+                5.0, 6.0, 6.0,
+                // row b (prev=b): next=a,b,c  ← same as row c
+                5.0, 6.0, 6.0,
+                // row c (prev=c): next=a,b,c  ← same as row b
+                5.0, 6.0, 6.0,
+            ],
+            &[4.0, 5.0, 5.0],   // left_edge: b == c
+            &[0.0, 1.0, 1.0],   // right_edge: b == c
+        );
+        let equiv = compute_equiv_classes(&wt, &[]);
+        assert_eq!(equiv.num_classes, 2, "expected 2 classes: {{a}}, {{b,c}}");
+        assert_ne!(equiv.class_of[0], equiv.class_of[1], "a should be in different class than b");
+        assert_eq!(equiv.class_of[1], equiv.class_of[2], "b and c should be in same class");
+        // b (idx 1) should be representative (first in class)
+        let bc_class = equiv.class_of[1];
+        assert_eq!(equiv.members[bc_class][0], 1, "b should be representative");
+        assert_eq!(equiv.members[bc_class].len(), 2);
+    }
+
+    #[test]
+    fn test_equiv_classes_all_unique() {
+        let wt = make_wt(
+            "abc",
+            &[
+                5.0, 6.0, 7.0,
+                8.0, 9.0, 10.0,
+                11.0, 12.0, 13.0,
+            ],
+            &[4.0, 5.0, 6.0],
+            &[0.0, 1.0, 2.0],
+        );
+        let equiv = compute_equiv_classes(&wt, &[]);
+        assert_eq!(equiv.num_classes, 3);
+        for i in 0..3 {
+            assert_eq!(equiv.members[equiv.class_of[i]].len(), 1);
+        }
+    }
+
+    #[test]
+    fn test_equiv_classes_with_extra_columns() {
+        // b and c have same width properties but different extra column → not equivalent
+        let wt = make_wt(
+            "abc",
+            &[
+                5.0, 6.0, 6.0,
+                5.0, 6.0, 6.0,
+                5.0, 6.0, 6.0,
+            ],
+            &[4.0, 5.0, 5.0],
+            &[0.0, 1.0, 1.0],
+        );
+        let extra = vec![10.0, 20.0, 30.0]; // different for b(20) and c(30)
+        let equiv = compute_equiv_classes(&wt, &[&extra]);
+        assert_eq!(equiv.num_classes, 3, "extra column should split b and c");
+    }
 }
