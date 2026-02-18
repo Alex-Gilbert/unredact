@@ -640,4 +640,48 @@ mod tests {
             assert!((r.width - 15.0).abs() <= 1.0, "result {} has error {} > tolerance", r.text, r.error);
         }
     }
+
+    #[test]
+    fn test_solve_subtree_3char_expansion() {
+        // charset "abc", b and c equivalent
+        // Verify 3-char matches expand correctly
+        let wt = make_wt(
+            "abc",
+            &[5.0,6.0,6.0, 5.0,6.0,6.0, 5.0,6.0,6.0],
+            &[4.0, 5.0, 5.0],
+            &[0.0, 0.0, 0.0],
+        );
+        let equiv = compute_equiv_classes(&wt, &[]);
+        let constraint = Constraint {
+            state_allowed: vec![vec![0, 1, 2]],
+            state_next: vec![vec![0, 0, 0]],
+            accept_states: vec![true],
+        };
+        let deduped = dedup_state_allowed(&equiv, &constraint);
+
+        // target = 16.0, tol = 0.5, length 3
+        // "abb": 4+6+6+0 = 16 → expands to abb, abc, acb, acc
+        // "bab": 5+5+6+0 = 16 → expands to bab, bac, cab, cac
+        let results = solve_subtree(
+            &wt, 16.0, 0.5, 3, 3,
+            "", 0.0, -1,
+            &constraint, 0,
+            &equiv, &deduped,
+        );
+        let mut texts: Vec<String> = results.iter().map(|r| r.text.clone()).collect();
+        texts.sort();
+        texts.dedup();
+
+        // Verify all expected expansions are present
+        for expected in &["abb", "abc", "acb", "acc", "bab", "bac", "cab", "cac"] {
+            assert!(texts.contains(&expected.to_string()),
+                "missing expected result: {}", expected);
+        }
+
+        // Verify all results have correct width
+        for r in &results {
+            assert!((r.width - 16.0).abs() <= 0.5,
+                "result {} has bad width {}", r.text, r.width);
+        }
+    }
 }
