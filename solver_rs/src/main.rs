@@ -10,7 +10,8 @@ use std::sync::Arc;
 use axum::{Json, Router, routing::post};
 use axum::extract::State;
 use axum::response::sse::{Event, Sse};
-use dfs::{Constraint, SolveResult, WidthTable, compute_length_bounds, solve_subtree};
+use dfs::{Constraint, SolveResult, WidthTable, compute_length_bounds, solve_subtree,
+          compute_equiv_classes, dedup_state_allowed};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio_stream::wrappers::ReceiverStream;
@@ -129,6 +130,9 @@ async fn handle_solve(
             }
         };
 
+        let equiv = compute_equiv_classes(&wt, &[]);
+        let deduped_allowed = dedup_state_allowed(&equiv, &constraint);
+
         let (auto_min, auto_max) = compute_length_bounds(&wt, req.target, req.tolerance);
         let min_length = req.min_length.unwrap_or(auto_min);
         let max_length = req.max_length.unwrap_or(auto_max);
@@ -139,7 +143,7 @@ async fn handle_solve(
 
         let prefix_depth = if n <= 52 { 2 } else { 1 };
         let prefix_depth = prefix_depth.min(max_length);
-        let prefixes = generate_prefixes(&wt, req.target, req.tolerance, prefix_depth, &constraint);
+        let prefixes = generate_prefixes(&wt, req.target, req.tolerance, prefix_depth, &constraint, &deduped_allowed);
 
         let total = Arc::new(AtomicUsize::new(0));
 
@@ -153,6 +157,7 @@ async fn handle_solve(
                 min_length, max_length,
                 prefix, *prefix_width, *last_idx,
                 &constraint, *pfx_state,
+                &equiv, &deduped_allowed,
             );
             results.sort_by(|a, b| a.error.partial_cmp(&b.error).unwrap());
 
@@ -228,11 +233,13 @@ async fn handle_full_name(
 
 fn generate_prefixes(
     wt: &WidthTable, target: f64, tolerance: f64, depth: usize, constraint: &Constraint,
+    deduped_allowed: &[Vec<usize>],
 ) -> Vec<(String, f64, i32, usize)> {
     let mut prefixes = Vec::new();
 
     fn expand(
         wt: &WidthTable, target: f64, tolerance: f64, constraint: &Constraint,
+        deduped_allowed: &[Vec<usize>],
         pfx: &mut Vec<u8>, acc_width: f64, last_idx: i32, remaining: usize, cstate: usize,
         prefixes: &mut Vec<(String, f64, i32, usize)>,
     ) {
@@ -241,7 +248,7 @@ fn generate_prefixes(
             prefixes.push((text, acc_width, last_idx, cstate));
             return;
         }
-        for &next_idx in &constraint.state_allowed[cstate] {
+        for &next_idx in &deduped_allowed[cstate] {
             let advance = if last_idx == -1 {
                 wt.left_edge[next_idx]
             } else {
@@ -252,12 +259,12 @@ fn generate_prefixes(
             let ns = constraint.state_next[cstate][next_idx];
             if ns < 0 { continue; }
             pfx.push(wt.charset[next_idx] as u8);
-            expand(wt, target, tolerance, constraint, pfx, new_width, next_idx as i32, remaining - 1, ns as usize, prefixes);
+            expand(wt, target, tolerance, constraint, deduped_allowed, pfx, new_width, next_idx as i32, remaining - 1, ns as usize, prefixes);
             pfx.pop();
         }
     }
 
-    expand(wt, target, tolerance, constraint, &mut Vec::new(), 0.0, -1, depth, 0, &mut prefixes);
+    expand(wt, target, tolerance, constraint, deduped_allowed, &mut Vec::new(), 0.0, -1, depth, 0, &mut prefixes);
     prefixes
 }
 

@@ -88,13 +88,16 @@ pub fn solve_subtree(
     last_char_idx: i32, // -1 if no prefix
     constraint: &Constraint,
     start_state: usize,
+    equiv: &EquivClasses,
+    deduped_allowed: &[Vec<usize>],
 ) -> Vec<SolveResult> {
     let smax = compute_state_max(wt, constraint);
+    let byte_to_idx = build_byte_to_idx(&wt.charset);
     let mut results = Vec::new();
 
     if prefix.is_empty() {
-        // Start from scratch — iterate first chars
-        for &first_idx in &constraint.state_allowed[start_state] {
+        // Start from scratch — iterate first chars (deduped: one representative per class)
+        for &first_idx in &deduped_allowed[start_state] {
             let start_width = wt.left_edge[first_idx];
             if start_width > target + tolerance {
                 continue;
@@ -118,6 +121,9 @@ pub fn solve_subtree(
                 max_length,
                 constraint,
                 &smax,
+                equiv,
+                deduped_allowed,
+                &byte_to_idx,
                 1,    // depth
                 start_width,
                 first_idx,
@@ -137,6 +143,9 @@ pub fn solve_subtree(
             max_length,
             constraint,
             &smax,
+            equiv,
+            deduped_allowed,
+            &byte_to_idx,
             0, // depth
             prefix_width,
             last_char_idx as usize,
@@ -159,6 +168,9 @@ fn dfs(
     max_length: usize,
     constraint: &Constraint,
     smax: &[f64],
+    equiv: &EquivClasses,
+    deduped_allowed: &[Vec<usize>],
+    byte_to_idx: &[usize; 128],
     depth: usize,
     acc_width: f64,
     last_idx: usize,
@@ -173,13 +185,16 @@ fn dfs(
         let final_width = acc_width + wt.right_edge[last_idx];
         let err = (final_width - target).abs();
         if err <= tolerance {
-            // SAFETY: path contains valid UTF-8 (ASCII charset chars)
-            let text = unsafe { String::from_utf8_unchecked(path.clone()) };
-            results.push(SolveResult {
-                text,
-                width: final_width,
-                error: err,
-            });
+            let expanded = expand_match(path, equiv, &wt.charset, byte_to_idx);
+            for text_bytes in expanded {
+                // SAFETY: path contains valid UTF-8 (ASCII charset chars)
+                let text = unsafe { String::from_utf8_unchecked(text_bytes) };
+                results.push(SolveResult {
+                    text,
+                    width: final_width,
+                    error: err,
+                });
+            }
         }
     }
 
@@ -189,7 +204,7 @@ fn dfs(
 
     let chars_left = max_length - current_length;
 
-    for &next_idx in &constraint.state_allowed[cstate] {
+    for &next_idx in &deduped_allowed[cstate] {
         let advance = wt.advance(last_idx, next_idx);
         let new_width = acc_width + advance;
 
@@ -218,6 +233,9 @@ fn dfs(
             max_length,
             constraint,
             smax,
+            equiv,
+            deduped_allowed,
+            byte_to_idx,
             depth + 1,
             new_width,
             next_idx,
@@ -563,5 +581,63 @@ mod tests {
         assert_eq!(expanded[1], b"abc");
         assert_eq!(expanded[2], b"acb");
         assert_eq!(expanded[3], b"acc");
+    }
+
+    #[test]
+    fn test_solve_subtree_expands_equivalences() {
+        let wt = make_wt(
+            "abc",
+            &[5.0,6.0,6.0, 5.0,6.0,6.0, 5.0,6.0,6.0],
+            &[4.0, 5.0, 5.0],
+            &[0.0, 0.0, 0.0],
+        );
+        let equiv = compute_equiv_classes(&wt, &[]);
+        let constraint = Constraint {
+            state_allowed: vec![vec![0, 1, 2]],
+            state_next: vec![vec![0, 0, 0]],
+            accept_states: vec![true],
+        };
+        let deduped = dedup_state_allowed(&equiv, &constraint);
+
+        // target = 10.0, tol = 0.5, length 2
+        // "ab": left[a]=4 + wt[a][b]=6 + right[b]=0 = 10 ✓
+        // "ac": left[a]=4 + wt[a][c]=6 + right[c]=0 = 10 ✓ (expanded from "ab")
+        let results = solve_subtree(
+            &wt, 10.0, 0.5, 2, 2,
+            "", 0.0, -1,
+            &constraint, 0,
+            &equiv, &deduped,
+        );
+        let mut texts: Vec<String> = results.iter().map(|r| r.text.clone()).collect();
+        texts.sort();
+        assert!(texts.contains(&"ab".to_string()), "should contain ab, got {:?}", texts);
+        assert!(texts.contains(&"ac".to_string()), "should contain ac, got {:?}", texts);
+    }
+
+    #[test]
+    fn test_solve_subtree_no_equiv_same_results() {
+        let wt = make_wt(
+            "abc",
+            &[5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0],
+            &[4.0, 5.0, 6.0],
+            &[0.0, 1.0, 2.0],
+        );
+        let equiv = compute_equiv_classes(&wt, &[]);
+        assert_eq!(equiv.num_classes, 3);
+        let constraint = Constraint {
+            state_allowed: vec![vec![0, 1, 2]],
+            state_next: vec![vec![0, 0, 0]],
+            accept_states: vec![true],
+        };
+        let deduped = dedup_state_allowed(&equiv, &constraint);
+        let results = solve_subtree(
+            &wt, 15.0, 1.0, 2, 2,
+            "", 0.0, -1,
+            &constraint, 0,
+            &equiv, &deduped,
+        );
+        for r in &results {
+            assert!((r.width - 15.0).abs() <= 1.0, "result {} has error {} > tolerance", r.text, r.error);
+        }
     }
 }

@@ -4,7 +4,9 @@
 /// outer DFS enumerates first words, inner DFS solves second word with
 /// exact remaining width.
 
-use crate::dfs::{Constraint, SolveResult, WidthTable, compute_length_bounds, solve_subtree};
+use crate::dfs::{Constraint, SolveResult, WidthTable, compute_length_bounds, solve_subtree,
+                 EquivClasses, compute_equiv_classes, dedup_state_allowed, build_byte_to_idx,
+                 expand_match};
 use std::collections::HashSet;
 
 /// Build a "capitalized" constraint: state 0 = uppercase, state 1 = lowercase.
@@ -83,14 +85,25 @@ pub fn solve_full_name(
         capitalized_constraint(word_charset)
     };
 
+    let equiv1 = compute_equiv_classes(&wt1, &[space_advance, left_after_space]);
+    let equiv2 = compute_equiv_classes(&wt2, &[]);
+    let deduped1 = dedup_state_allowed(&equiv1, &constraint);
+    let deduped2 = dedup_state_allowed(&equiv2, &constraint);
+    let byte_to_idx = build_byte_to_idx(word_charset);
+
     let min_word_len: usize = if uppercase_only { 1 } else { 2 };
 
+    // Keep original allowed lists for bounds computation
     let first_allowed = &constraint.state_allowed[0]; // uppercase (or all)
     let body_allowed = if constraint.state_allowed.len() > 1 {
         &constraint.state_allowed[1] // lowercase (or all)
     } else {
         &constraint.state_allowed[0]
     };
+
+    // Deduped versions for DFS iteration
+    let first_deduped = &deduped1[0];
+    let body_deduped = if deduped1.len() > 1 { &deduped1[1] } else { &deduped1[0] };
 
     // Min second word width (for overshoot pruning of first word)
     let min_second = {
@@ -154,6 +167,8 @@ pub fn solve_full_name(
         target, tolerance, min_word_len, first_max_len, first_max_width,
         min_space, min_second, max_word_advance,
         first_allowed, body_allowed,
+        &equiv1, &byte_to_idx, first_deduped, body_deduped,
+        &equiv2, &deduped2,
         0, 0.0, 0, &mut Vec::new(), true,
         &mut results, &mut seen,
     );
@@ -183,6 +198,12 @@ fn dfs_first(
     max_word_advance: f64,
     first_allowed: &[usize],
     body_allowed: &[usize],
+    equiv1: &EquivClasses,
+    byte_to_idx: &[usize; 128],
+    first_deduped: &[usize],
+    body_deduped: &[usize],
+    equiv2: &EquivClasses,
+    deduped2: &[Vec<usize>],
     depth: usize,
     acc_width: f64,
     last_idx: usize,
@@ -207,21 +228,26 @@ fn dfs_first(
                     auto_min2, auto_max2,
                     "", 0.0, -1,
                     constraint, 0,
+                    equiv2, deduped2,
                 );
 
-                let first_text = unsafe { String::from_utf8_unchecked(path.clone()) };
-                for r2 in &second_results {
-                    let full_text = format!("{} {}", first_text, r2.text);
-                    if !seen.contains(&full_text) {
-                        let full_width = first_width + sp + r2.width;
-                        let err = (full_width - target).abs();
-                        if err <= tolerance {
-                            seen.insert(full_text.clone());
-                            results.push(SolveResult {
-                                text: full_text,
-                                width: full_width,
-                                error: err,
-                            });
+                // Expand first word (all class-member variants)
+                let first_expanded = expand_match(path, equiv1, charset, byte_to_idx);
+                for first_bytes in &first_expanded {
+                    let first_text = unsafe { String::from_utf8_unchecked(first_bytes.clone()) };
+                    for r2 in &second_results {
+                        let full_text = format!("{} {}", first_text, r2.text);
+                        if !seen.contains(&full_text) {
+                            let full_width = first_width + sp + r2.width;
+                            let err = (full_width - target).abs();
+                            if err <= tolerance {
+                                seen.insert(full_text.clone());
+                                results.push(SolveResult {
+                                    text: full_text,
+                                    width: full_width,
+                                    error: err,
+                                });
+                            }
                         }
                     }
                 }
@@ -233,7 +259,7 @@ fn dfs_first(
         return;
     }
 
-    let allowed = if depth == 0 { first_allowed } else { body_allowed };
+    let allowed = if depth == 0 { first_deduped } else { body_deduped };
     let chars_left = first_max_len - depth;
 
     for &next_idx in allowed {
@@ -264,6 +290,8 @@ fn dfs_first(
             target, tolerance, min_word_len, first_max_len, first_max_width,
             min_space, min_second, max_word_advance,
             first_allowed, body_allowed,
+            equiv1, byte_to_idx, first_deduped, body_deduped,
+            equiv2, deduped2,
             depth + 1, new_width, next_idx, path, false,
             results, seen,
         );
