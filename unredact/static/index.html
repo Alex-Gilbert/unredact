@@ -80,15 +80,20 @@
             </div>
             <div class="solve-controls">
               <label>
+                Mode
+                <select id="solve-mode">
+                  <option value="name" selected>Name</option>
+                  <option value="full_name">Full Name</option>
+                  <option value="email">Email</option>
+                  <option value="enumerate">Enumerate</option>
+                </select>
+              </label>
+              <label>
                 Charset
                 <select id="solve-charset">
                   <option value="lowercase">lowercase</option>
                   <option value="uppercase">UPPERCASE</option>
                   <option value="capitalized">Capitalized</option>
-                  <option value="full_name_capitalized">Full Name</option>
-                  <option value="full_name_caps">FULL NAME</option>
-                  <option value="alpha">Mixed Case</option>
-                  <option value="alphanumeric">Alphanumeric</option>
                 </select>
               </label>
               <label>
@@ -96,17 +101,8 @@
                 <input type="range" id="solve-tolerance" min="0" max="5" step="0.5" value="0">
                 <span id="solve-tol-value">0</span>px
               </label>
-              <label>
-                Mode
-                <select id="solve-mode">
-                  <option value="enumerate">Enumerate</option>
-                  <option value="dictionary">Dictionary</option>
-                  <option value="both">Both</option>
-                  <option value="emails">Emails</option>
-                </select>
-              </label>
-              <label>
-                Filter
+              <label id="filter-label" hidden>
+                Word filter
                 <select id="solve-filter">
                   <option value="none">None</option>
                   <option value="words">English words</option>
@@ -115,12 +111,12 @@
                 </select>
               </label>
               <label>
-                Filter prefix
-                <input type="text" id="solve-filter-prefix" placeholder="e.g. j" spellcheck="false" autocomplete="off">
+                Known start
+                <input type="text" id="solve-known-start" placeholder="e.g. j" spellcheck="false" autocomplete="off">
               </label>
               <label>
-                Filter suffix
-                <input type="text" id="solve-filter-suffix" placeholder="e.g. son" spellcheck="false" autocomplete="off">
+                Known end
+                <input type="text" id="solve-known-end" placeholder="e.g. son" spellcheck="false" autocomplete="off">
               </label>
             </div>
             <div class="solve-actions">
