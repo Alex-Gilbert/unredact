@@ -1,0 +1,329 @@
+{
+  "docId": "daec25840655",
+  "pageCount": 2,
+  "pages": {
+    "1": [
+      {
+        "id": "5e276b48",
+        "x": 757,
+        "y": 741,
+        "w": 401,
+        "h": 52,
+        "status": "analyzed",
+        "overrides": {
+          "fontId": "times-new-roman",
+          "fontSize": 50,
+          "offsetX": -3,
+          "offsetY": 6,
+          "gapWidth": 402,
+          "leftText": "On Aug 27, 2012, at 2:02 PM, ",
+          "rightText": " wrote:"
+        },
+        "analysis": {
+          "font": {
+            "name": "Times New Roman",
+            "id": "times-new-roman",
+            "size": 50,
+            "score": 0.6055935578837994
+          },
+          "gap": {
+            "x": 757,
+            "w": 401
+          },
+          "line": {
+            "x": 141,
+            "y": 739,
+            "w": 1154,
+            "h": 57,
+            "text": "On Aug 27, 2012, at 2:02 PM, — wrote:"
+          },
+          "segments": [
+            {
+              "text": "On Aug 27, 2012, at 2:02 PM,"
+            },
+            {
+              "text": "wrote:"
+            }
+          ],
+          "offset_x": -1,
+          "offset_y": 0
+        }
+      },
+      {
+        "id": "2b001506",
+        "x": 393,
+        "y": 903,
+        "w": 64,
+        "h": 52,
+        "status": "analyzed",
+        "overrides": {
+          "fontId": "times-new-roman",
+          "fontSize": 50,
+          "offsetX": -4,
+          "offsetY": 11,
+          "gapWidth": 64,
+          "leftText": "Got it. Sent ",
+          "rightText": " an email."
+        },
+        "analysis": {
+          "font": {
+            "name": "Times New Roman",
+            "id": "times-new-roman",
+            "size": 50,
+            "score": 0.6231324492194057
+          },
+          "gap": {
+            "x": 393,
+            "w": 64
+          },
+          "line": {
+            "x": 157,
+            "y": 897,
+            "w": 492,
+            "h": 66,
+            "text": "Got it. Sent[ an email."
+          },
+          "segments": [
+            {
+              "text": "Got it. Se"
+            },
+            {
+              "text": "an email."
+            }
+          ],
+          "offset_x": -2,
+          "offset_y": 0
+        }
+      },
+      {
+        "id": "da6ec78e",
+        "x": 434,
+        "y": 2029,
+        "w": 120,
+        "h": 51,
+        "status": "analyzed",
+        "overrides": {
+          "fontId": "times-new-roman",
+          "fontSize": 50,
+          "offsetX": -4,
+          "offsetY": 6,
+          "gapWidth": 122,
+          "leftText": "If you can let ",
+          "rightText": " or"
+        },
+        "analysis": {
+          "font": {
+            "name": "Times New Roman",
+            "id": "times-new-roman",
+            "size": 50,
+            "score": 0.7184559531747796
+          },
+          "gap": {
+            "x": 434,
+            "w": 120
+          },
+          "line": {
+            "x": 159,
+            "y": 2027,
+            "w": 2071,
+            "h": 55,
+            "text": "If you can let ]l or ] know what to do with the tuna that would be great. i} is still on the ranch"
+          },
+          "segments": [
+            {
+              "text": "If you can let"
+            },
+            {
+              "text": "or ] know what to do with the tuna that would be great. i} is still on the ranch"
+            }
+          ],
+          "offset_x": -4,
+          "offset_y": 0
+        }
+      },
+      {
+        "id": "aed57ad3",
+        "x": 623,
+        "y": 2029,
+        "w": 64,
+        "h": 51,
+        "status": "analyzed",
+        "overrides": {
+          "fontId": "times-new-roman",
+          "fontSize": 50,
+          "offsetX": 408.8804627529084,
+          "offsetY": 6.328932996818563,
+          "gapWidth": 67,
+          "leftText": "or ",
+          "rightText": " know what to do with the tuna that would be great. "
+        },
+        "analysis": {
+          "font": {
+            "name": "Times New Roman",
+            "id": "times-new-roman",
+            "size": 50,
+            "score": 0.7184559531747796
+          },
+          "gap": {
+            "x": 623,
+            "w": 64
+          },
+          "line": {
+            "x": 159,
+            "y": 2027,
+            "w": 2071,
+            "h": 55,
+            "text": "If you can let ]l or ] know what to do with the tuna that would be great. i} is still on the ranch"
+          },
+          "segments": [
+            {
+              "text": "If you can let ]l or"
+            },
+            {
+              "text": "know what to do with the tuna that would be great. i} is still on the ranch"
+            }
+          ],
+          "offset_x": -4,
+          "offset_y": 0
+        }
+      },
+      {
+        "id": "dba911fb",
+        "x": 1734,
+        "y": 2029,
+        "w": 105,
+        "h": 51,
+        "status": "analyzed",
+        "overrides": {
+          "fontId": "times-new-roman",
+          "fontSize": 50,
+          "offsetX": 1448.6845532639488,
+          "offsetY": 5.996294050598364,
+          "gapWidth": 107,
+          "leftText": "great. ",
+          "rightText": " is still on the ranch"
+        },
+        "analysis": {
+          "font": {
+            "name": "Times New Roman",
+            "id": "times-new-roman",
+            "size": 50,
+            "score": 0.7184559531747796
+          },
+          "gap": {
+            "x": 1734,
+            "w": 105
+          },
+          "line": {
+            "x": 159,
+            "y": 2027,
+            "w": 2071,
+            "h": 55,
+            "text": "If you can let ]l or ] know what to do with the tuna that would be great. i} is still on the ranch"
+          },
+          "segments": [
+            {
+              "text": "If you can let ]l or ] know what to do with the tuna that would be great."
+            },
+            {
+              "text": "is still on the ranch"
+            }
+          ],
+          "offset_x": -23,
+          "offset_y": 0
+        }
+      },
+      {
+        "id": "8284779b",
+        "x": 798,
+        "y": 2085,
+        "w": 401,
+        "h": 52,
+        "status": "analyzed",
+        "overrides": {
+          "fontId": "times-new-roman",
+          "fontSize": 50,
+          "offsetX": -4.2575926823615635,
+          "offsetY": 9.674352435350166,
+          "gapWidth": 403,
+          "leftText": "On Aug 27, 2012, at 12:52 PM, ",
+          "rightText": " wrote:"
+        },
+        "analysis": {
+          "font": {
+            "name": "Times New Roman",
+            "id": "times-new-roman",
+            "size": 50,
+            "score": 0.4268292682926829
+          },
+          "gap": {
+            "x": 798,
+            "w": 401
+          },
+          "line": {
+            "x": 157,
+            "y": 2079,
+            "w": 1180,
+            "h": 65,
+            "text": "On Aug 27, 2012, at 12:52 PM, [G ot"
+          },
+          "segments": [
+            {
+              "text": "On Aug 27, 2012, at 12:52 PM,"
+            },
+            {
+              "text": "ot"
+            }
+          ],
+          "offset_x": -2,
+          "offset_y": -13
+        }
+      }
+    ],
+    "2": [
+      {
+        "id": "05cc88f7",
+        "x": 546,
+        "y": 171,
+        "w": 400,
+        "h": 53,
+        "status": "analyzed",
+        "overrides": {
+          "fontId": "dejavu-sans",
+          "fontSize": 66,
+          "offsetX": -12,
+          "offsetY": -20,
+          "gapWidth": 400,
+          "leftText": "To: francis derby-",
+          "rightText": ""
+        },
+        "analysis": {
+          "font": {
+            "name": "DejaVu Sans",
+            "id": "dejavu-sans",
+            "size": 66,
+            "score": 0.18376703041260412
+          },
+          "gap": {
+            "x": 546,
+            "w": 400
+          },
+          "line": {
+            "x": 172,
+            "y": 132,
+            "w": 803,
+            "h": 99,
+            "text": "To: francis derby--"
+          },
+          "segments": [
+            {
+              "text": "To: francis derby-"
+            }
+          ],
+          "offset_x": -12,
+          "offset_y": -20
+        }
+      }
+    ]
+  }
+}

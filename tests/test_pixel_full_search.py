@@ -2,7 +2,7 @@
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from unredact.pipeline.font_detect import _find_font_path, _full_search
+from unredact.pipeline.font_detect import _find_font_path, _full_search, _score_font_line_pixel
 from unredact.pipeline.ocr import OcrChar, OcrLine
 
 
@@ -61,7 +61,8 @@ def test_full_search_finds_correct_serif():
     text = "Got it. Sent an email."
     line, crop = _make_line_and_crop("Times New Roman", 50, text)
 
-    best = _full_search(line, crop)
+    scorer = lambda font: _score_font_line_pixel(font, line, crop)
+    best = _full_search(line.h, scorer)
     assert best is not None
     assert "Times" in best.font_name or "Liberation Serif" in best.font_name, (
         f"Expected serif font, got {best.font_name}"
@@ -76,7 +77,8 @@ def test_full_search_finds_correct_sans():
     text = "The quick brown fox jumps."
     line, crop = _make_line_and_crop("Arial", 44, text)
 
-    best = _full_search(line, crop)
+    scorer = lambda font: _score_font_line_pixel(font, line, crop)
+    best = _full_search(line.h, scorer)
     assert best is not None
     assert "Arial" in best.font_name or "Liberation Sans" in best.font_name, (
         f"Expected sans-serif font, got {best.font_name}"

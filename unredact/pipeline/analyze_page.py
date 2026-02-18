@@ -88,6 +88,9 @@ async def analyze_page(
     #     LlmRedaction to Redaction box (or None if not found).
     llm_to_box: dict[int, Redaction | None] = {}
     for i, llm_red in enumerate(llm_redactions):
+        # Use line height as padding — OCR positions near redactions are
+        # unreliable because artifacts compress the visual gap.
+        pad = llm_red.line_h
         box = await asyncio.to_thread(
             find_redaction_in_region,
             page_image,
@@ -95,6 +98,7 @@ async def analyze_page(
             llm_red.line_y,
             llm_red.right_x,
             llm_red.line_y + llm_red.line_h,
+            pad,
         )
         llm_to_box[i] = box
 

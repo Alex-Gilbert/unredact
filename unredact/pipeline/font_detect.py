@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from unredact.pipeline.ocr import OcrLine
+from unredact.pipeline.ocr import OcrChar, OcrLine
 
 # Candidate fonts to test (common document fonts available on the system)
 CANDIDATE_FONTS: list[str] = [
@@ -202,14 +203,21 @@ def align_text_to_page(
     return (-best_dx, -best_dy)
 
 
-def _full_search(line: OcrLine, line_crop: np.ndarray) -> FontMatch | None:
-    """Full search across all candidate fonts and sizes for one line."""
+def _full_search(
+    line_h: int,
+    scorer: Callable[[ImageFont.FreeTypeFont], float],
+) -> FontMatch | None:
+    """Full search across all candidate fonts and sizes.
+
+    Args:
+        line_h: OCR line height in pixels (used to bound the size search).
+        scorer: Callable that takes a PIL font and returns a score (0.0–1.0).
+    """
     best: FontMatch | None = None
 
     # Constrain size range using the OCR line height.
     # Pixel scoring has sharp peaks at the exact size, so we scan
     # every integer size (step=1) instead of using a coarse step.
-    line_h = line.h
     min_size = max(12, int(line_h * 0.6))
     max_size = min(120, int(line_h * 1.4))
 
@@ -224,7 +232,7 @@ def _full_search(line: OcrLine, line_crop: np.ndarray) -> FontMatch | None:
             except Exception:
                 continue
 
-            score = _score_font_line_pixel(font, line, line_crop)
+            score = scorer(font)
 
             if best is None or score > best.score:
                 best = FontMatch(
@@ -237,7 +245,10 @@ def _full_search(line: OcrLine, line_crop: np.ndarray) -> FontMatch | None:
     return best
 
 
-def _fine_search(line: OcrLine, line_crop: np.ndarray, coarse: FontMatch) -> FontMatch:
+def _fine_search(
+    coarse: FontMatch,
+    scorer: Callable[[ImageFont.FreeTypeFont], float],
+) -> FontMatch:
     """Fine search: ±3 around the coarse best size in steps of 1."""
     best = coarse
     for size in range(max(8, coarse.font_size - 3), coarse.font_size + 4):
@@ -247,7 +258,7 @@ def _fine_search(line: OcrLine, line_crop: np.ndarray, coarse: FontMatch) -> Fon
             font = ImageFont.truetype(str(coarse.font_path), size)
         except Exception:
             continue
-        score = _score_font_line_pixel(font, line, line_crop)
+        score = scorer(font)
         if score > best.score:
             best = FontMatch(
                 font_name=coarse.font_name,
@@ -268,10 +279,112 @@ def detect_font_for_line_from_crop(
     (e.g. the non-redacted portion of a line). The line's x/y should
     be 0,0 (crop-relative coordinates).
     """
-    best = _full_search(line, line_crop)
+    scorer = lambda font: _score_font_line_pixel(font, line, line_crop)
+    best = _full_search(line.h, scorer)
     if best is None:
         raise RuntimeError("No matching font found. Check system fonts.")
-    return _fine_search(line, line_crop, best)
+    return _fine_search(best, scorer)
+
+
+def _filter_clean_chars(
+    chars: list[OcrChar],
+    redaction_boxes: list[tuple[int, int, int, int]],
+) -> list[OcrChar]:
+    """Return chars whose center doesn't fall inside any redaction box."""
+    clean = []
+    for c in chars:
+        cx = c.x + c.w / 2
+        cy = c.y + c.h / 2
+        in_box = False
+        for rx, ry, rw, rh in redaction_boxes:
+            if rx <= cx <= rx + rw and ry <= cy <= ry + rh:
+                in_box = True
+                break
+        if not in_box:
+            clean.append(c)
+    return clean
+
+
+def _group_chars_into_runs(chars: list[OcrChar]) -> list[list[OcrChar]]:
+    """Group consecutive chars into word-like runs for rendering.
+
+    Chars that are spatially close (same y, adjacent x) are grouped so
+    they can be rendered as a single string, preserving kerning.
+    """
+    if not chars:
+        return []
+    runs: list[list[OcrChar]] = []
+    current = [chars[0]]
+    for c in chars[1:]:
+        prev = current[-1]
+        # Same vertical position and horizontally adjacent (within 5px gap)
+        if c.y == prev.y and c.x <= prev.x + prev.w + 5:
+            current.append(c)
+        else:
+            runs.append(current)
+            current = [c]
+    runs.append(current)
+    return runs
+
+
+def _score_font_masked_pixel(
+    font: ImageFont.FreeTypeFont,
+    char_runs: list[list[OcrChar]],
+    line_x: int,
+    line_y: int,
+    line_crop: np.ndarray,
+) -> float:
+    """Score font by rendering clean char runs at their OCR positions.
+
+    Unlike _score_font_line_pixel which renders the full line text as a
+    single string, this renders each word-like run at its actual OCR
+    position. This correctly handles the spatial gap where a redaction
+    was masked out, preventing:
+    - OCR artifacts from producing false ink
+    - Right-side text from rendering at the wrong x position
+    - Large fonts from getting inflated scores due to canvas overflow
+    """
+    h, w = line_crop.shape
+    if h < 5 or w < 10:
+        return 0.0
+
+    page_bin = line_crop < 128
+    page_ink = int(page_bin.sum())
+    if page_ink < 10:
+        return 0.0
+
+    # Render each run at its OCR position
+    rendered_img = Image.new("L", (w, h), 255)
+    draw = ImageDraw.Draw(rendered_img)
+
+    for run in char_runs:
+        text = "".join(c.text for c in run)
+        if not text.strip():
+            continue
+        # Crop-relative position of the run's first char
+        cx = run[0].x - line_x
+        cy = run[0].y - line_y
+        bbox = font.getbbox(text)
+        draw.text((cx - bbox[0], cy - bbox[1]), text, font=font, fill=0)
+
+    rendered_arr = np.array(rendered_img)
+    rendered_bin = rendered_arr < 128
+
+    rendered_ink = int(rendered_bin.sum())
+    if rendered_ink < 10:
+        return 0.0
+
+    # Try small shifts to find best alignment, using Dice coefficient
+    best_score = 0.0
+    total_ink = page_ink + rendered_ink
+    for dy in range(-3, 4):
+        for dx in range(-3, 4):
+            shifted = _shift_2d(rendered_bin, dx, dy)
+            intersection = int((page_bin & shifted).sum())
+            score = 2.0 * intersection / total_ink if total_ink > 0 else 0.0
+            if score > best_score:
+                best_score = score
+    return best_score
 
 
 def detect_font_masked(
@@ -279,13 +392,11 @@ def detect_font_masked(
     page_image: Image.Image,
     redaction_boxes: list[tuple[int, int, int, int]],
 ) -> FontMatch:
-    """Detect the best font by masking redaction boxes to white before scoring.
+    """Detect the best font by masking redaction boxes and scoring clean chars.
 
-    Instead of cropping just the unredacted portion of a line (which loses
-    signal from narrow crops and coordinate mismatches), this masks each
-    redaction box to white (255) in the full line crop. The Dice-based pixel
-    scoring naturally ignores the masked (white) regions since they contain
-    no ink pixels.
+    Masks each redaction box to white in the page crop, then renders only
+    the non-redacted characters at their OCR positions for scoring. This
+    ensures the rendered text matches the spatial layout of the page.
 
     Args:
         line: OCR line with page-relative coordinates.
@@ -301,33 +412,31 @@ def detect_font_masked(
         page_image.convert("L").crop((line.x, line.y, line.x + line.w, line.y + line.h))
     )
 
-    # 2. Mask each redaction box to white (255) — convert page-relative to crop-relative
+    # 2. Mask each redaction box to white (255)
     for rx, ry, rw, rh in redaction_boxes:
-        # Convert from page coordinates to crop-relative coordinates
         cx = rx - line.x
         cy = ry - line.y
-
-        # Clip to the crop bounds
         x0 = max(0, cx)
         y0 = max(0, cy)
         x1 = min(line.w, cx + rw)
         y1 = min(line.h, cy + rh)
-
         if x0 < x1 and y0 < y1:
             line_crop[y0:y1, x0:x1] = 255
 
-    # 3. Create a scoring line with crop-relative coordinates (x=0, y=0)
-    scoring_line = OcrLine(
-        chars=line.chars,
-        x=0, y=0,
-        w=line.w, h=line.h,
-    )
+    # 3. Filter out chars in redaction zones, group into runs
+    clean_chars = _filter_clean_chars(line.chars, redaction_boxes)
+    if not clean_chars:
+        raise RuntimeError("No clean chars outside redaction boxes.")
+    char_runs = _group_chars_into_runs(clean_chars)
 
-    # 4. Full search then fine search
-    best = _full_search(scoring_line, line_crop)
+    # 4. Search using position-aware masked scoring
+    scorer = lambda font: _score_font_masked_pixel(
+        font, char_runs, line.x, line.y, line_crop,
+    )
+    best = _full_search(line.h, scorer)
     if best is None:
         raise RuntimeError("No matching font found. Check system fonts.")
-    return _fine_search(scoring_line, line_crop, best)
+    return _fine_search(best, scorer)
 
 
 def detect_font_for_line(
@@ -352,6 +461,8 @@ def detect_font_for_line(
         w=line.w, h=line.h,
     )
 
+    scorer = lambda font: _score_font_line_pixel(font, scoring_line, line_crop)
+
     # Lines with too few characters can't be scored reliably
     if len(line.text.strip()) < 3:
         if prior is not None:
@@ -363,24 +474,24 @@ def detect_font_for_line(
     if prior is not None:
         try:
             prior_font = prior.to_pil_font()
-            prior_score = _score_font_line_pixel(prior_font, scoring_line, line_crop)
+            prior_score = scorer(prior_font)
         except Exception:
             pass
 
     # Full search
-    best = _full_search(scoring_line, line_crop)
+    best = _full_search(line.h, scorer)
     if best is None:
         if prior is not None:
             return prior
         raise RuntimeError("No matching font found. Check system fonts.")
 
     # Fine-tune the full search winner
-    best = _fine_search(scoring_line, line_crop, best)
+    best = _fine_search(best, scorer)
 
     # If we have a prior and it's close enough, prefer it for consistency
     if prior is not None and prior_score >= best.score * (1.0 / PRIOR_BIAS):
         # Fine-tune the prior too
-        return _fine_search(scoring_line, line_crop, prior)
+        return _fine_search(prior, scorer)
 
     return best
 

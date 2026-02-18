@@ -19,6 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 from unredact.pipeline.rasterize import rasterize_pdf
 from unredact.pipeline.font_detect import CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.analyze_page import analyze_page
+from unredact.pipeline.detect_redactions import spot_redaction
 from unredact.pipeline.solver import build_constraint, SolveResult
 from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary
 from unredact.pipeline.word_filter import _get_emails
@@ -135,7 +136,16 @@ async def analyze_doc(doc_id: str):
     async def event_generator():
         for page_num, pd in doc["pages"].items():
             page_img = pd["original"]
-            analysis = await analyze_page(page_img)
+            try:
+                analysis = await analyze_page(page_img)
+            except Exception as exc:
+                yield json.dumps({
+                    "event": "error",
+                    "page": page_num,
+                    "message": str(exc),
+                })
+                continue
+
             pd["analysis"] = analysis
 
             redactions_json = []
@@ -452,6 +462,20 @@ async def delete_dictionary(name: str):
 @app.get("/api/associates")
 async def get_associates():
     return _get_associates()
+
+
+@app.post("/api/doc/{doc_id}/page/{page}/spot")
+async def spot(doc_id: str, page: int, data: dict):
+    doc = _docs.get(doc_id)
+    if not doc or page not in doc["pages"]:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    click_x = int(data["x"])
+    click_y = int(data["y"])
+    page_img = doc["pages"][page]["original"]
+    result = spot_redaction(page_img, click_x, click_y)
+    if result is None:
+        return JSONResponse({"error": "no redaction found"}, status_code=404)
+    return {"id": result.id, "x": result.x, "y": result.y, "w": result.w, "h": result.h}
 
 
 # Static files mount MUST be after all route definitions

@@ -65,6 +65,10 @@ def _get_client() -> anthropic.AsyncAnthropic:
     """Return a cached async Anthropic client."""
     global _client
     if _client is None:
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY not set. Export it before running the server."
+            )
         _client = anthropic.AsyncAnthropic()
     return _client
 
@@ -249,7 +253,7 @@ async def detect_redactions_llm(
 
     response = await client.messages.create(
         model=model,
-        max_tokens=1024,
+        max_tokens=2048,
         tools=[_TOOL],
         tool_choice={"type": "tool", "name": "report_redactions"},
         messages=[{"role": "user", "content": prompt}],

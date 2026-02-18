@@ -1,4 +1,4 @@
-.PHONY: build build-solver run stop restart solver app logs status clean dev kill build-associates build-emails
+.PHONY: build build-solver run stop restart solver app logs status clean dev kill build-associates build-emails check-api-key
 
 SOLVER_BIN  = solver_rs/target/release/unredact-solver
 SOLVER_PORT ?= 3100
@@ -9,6 +9,10 @@ VENV        = .venv/bin
 PYTHON      = $(VENV)/python
 UVICORN     = $(VENV)/uvicorn
 
+# Load .env if it exists
+-include .env
+export ANTHROPIC_API_KEY
+
 $(PID_DIR):
 	mkdir -p $(PID_DIR)
 
@@ -18,6 +22,17 @@ build-solver:
 	cd solver_rs && cargo build --release
 
 build: build-solver
+
+# ── API key ──
+
+check-api-key:
+	@if [ -z "$(ANTHROPIC_API_KEY)" ]; then \
+		printf "Enter your Anthropic API key (from console.anthropic.com): "; \
+		read key; \
+		echo "ANTHROPIC_API_KEY=$$key" > .env; \
+		echo "Saved to .env — run make again."; \
+		exit 1; \
+	fi
 
 # ── Run (background, use `make logs` to see output) ──
 
@@ -37,7 +52,7 @@ solver: $(PID_DIR) build-solver
 		fi \
 	fi
 
-app: $(PID_DIR) solver
+app: check-api-key $(PID_DIR) solver
 	@if [ -f $(PID_DIR)/app.pid ] && kill -0 $$(cat $(PID_DIR)/app.pid) 2>/dev/null; then \
 		echo "App already running (pid $$(cat $(PID_DIR)/app.pid))"; \
 	else \
@@ -56,7 +71,7 @@ app: $(PID_DIR) solver
 
 # ── Run with live logs (foreground, Ctrl-C stops everything) ──
 
-run: $(PID_DIR) build-solver
+run: check-api-key $(PID_DIR) build-solver
 	@SOLVER_PORT=$(SOLVER_PORT) DATA_DIR=$(DATA_DIR) $(SOLVER_BIN) > $(PID_DIR)/solver.log 2>&1 & \
 	echo $$! > $(PID_DIR)/solver.pid; \
 	sleep 0.5; \
