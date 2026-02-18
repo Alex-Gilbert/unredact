@@ -60,3 +60,69 @@ def solve_dictionary(
 
     results.sort(key=lambda r: (r.error, r.text))
     return results
+
+
+def solve_full_name_dictionary(
+    font: ImageFont.FreeTypeFont,
+    target_width: float,
+    tolerance: float = 0.0,
+    left_context: str = "",
+    right_context: str = "",
+    uppercase_only: bool = False,
+) -> list[SolveResult]:
+    """Match associate first x last name combinations against target width.
+
+    Generates the Cartesian product of associate first and last names,
+    applies casing (Title Case or UPPER), and checks each combination's
+    rendered width. Also checks associate name variants (initials, nicknames).
+    """
+    from unredact.pipeline.word_filter import (
+        _get_associate_firsts,
+        _get_associate_lasts,
+        _get_associate_variants,
+    )
+
+    firsts = _get_associate_firsts()
+    lasts = _get_associate_lasts()
+    variants = _get_associate_variants()
+
+    results: list[SolveResult] = []
+    seen: set[str] = set()
+
+    def _check(text: str):
+        if text in seen:
+            return
+        seen.add(text)
+
+        if left_context or right_context:
+            full = left_context + text + right_context
+            full_len = font.getlength(full)
+            left_len = font.getlength(left_context) if left_context else 0.0
+            right_len = font.getlength(right_context) if right_context else 0.0
+            width = full_len - left_len - right_len
+        else:
+            width = font.getlength(text)
+
+        error = abs(width - target_width)
+        if error <= tolerance:
+            results.append(SolveResult(text=text, width=float(width), error=float(error)))
+
+    # Cartesian product of first x last names
+    for first in firsts:
+        for last in lasts:
+            if uppercase_only:
+                text = (first + " " + last).upper()
+            else:
+                text = first.title() + " " + last.title()
+            _check(text)
+
+    # Associate variants (J. Doe, Jeff Epstein, etc.)
+    for variant in variants:
+        if uppercase_only:
+            text = variant.upper()
+        else:
+            text = variant.title()
+        _check(text)
+
+    results.sort(key=lambda r: (r.error, r.text))
+    return results

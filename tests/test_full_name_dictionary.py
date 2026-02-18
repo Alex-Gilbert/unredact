@@ -1,0 +1,112 @@
+"""Tests for dictionary-based full name solving."""
+
+from unittest.mock import MagicMock, patch
+
+from unredact.pipeline.dictionary import solve_full_name_dictionary
+from unredact.pipeline.solver import SolveResult
+
+
+def _mock_font(width_map: dict[str, float]) -> MagicMock:
+    """Create a mock font that returns widths from a map."""
+    font = MagicMock()
+    font.getlength.side_effect = lambda text: width_map.get(text, len(text) * 7.0)
+    return font
+
+
+class TestSolveFullNameDictionary:
+    @patch("unredact.pipeline.word_filter._get_associate_firsts")
+    @patch("unredact.pipeline.word_filter._get_associate_lasts")
+    @patch("unredact.pipeline.word_filter._get_associate_variants")
+    def test_basic_match(self, mock_variants, mock_lasts, mock_firsts):
+        mock_firsts.return_value = ["john", "jane"]
+        mock_lasts.return_value = ["doe", "smith"]
+        mock_variants.return_value = []
+
+        font = _mock_font({"John Doe": 50.0, "John Smith": 60.0, "Jane Doe": 48.0, "Jane Smith": 58.0})
+
+        results = solve_full_name_dictionary(font, 50.0, 1.0)
+
+        texts = [r.text for r in results]
+        assert "John Doe" in texts
+        assert "Jane Doe" not in texts  # 48.0 is outside tolerance
+
+    @patch("unredact.pipeline.word_filter._get_associate_firsts")
+    @patch("unredact.pipeline.word_filter._get_associate_lasts")
+    @patch("unredact.pipeline.word_filter._get_associate_variants")
+    def test_uppercase_mode(self, mock_variants, mock_lasts, mock_firsts):
+        mock_firsts.return_value = ["john"]
+        mock_lasts.return_value = ["doe"]
+        mock_variants.return_value = []
+
+        font = _mock_font({"JOHN DOE": 55.0})
+
+        results = solve_full_name_dictionary(font, 55.0, 1.0, uppercase_only=True)
+
+        assert len(results) == 1
+        assert results[0].text == "JOHN DOE"
+
+    @patch("unredact.pipeline.word_filter._get_associate_firsts")
+    @patch("unredact.pipeline.word_filter._get_associate_lasts")
+    @patch("unredact.pipeline.word_filter._get_associate_variants")
+    def test_includes_associate_variants(self, mock_variants, mock_lasts, mock_firsts):
+        mock_firsts.return_value = ["john"]
+        mock_lasts.return_value = ["doe"]
+        mock_variants.return_value = ["j. doe", "johnny doe"]
+
+        font = _mock_font({
+            "John Doe": 50.0,
+            "J. Doe": 35.0,
+            "Johnny Doe": 60.0,
+        })
+
+        results = solve_full_name_dictionary(font, 50.0, 1.0)
+        texts = [r.text for r in results]
+        assert "John Doe" in texts
+        # J. Doe title-cases to "J. Doe" with width 35.0 -- outside tolerance
+        # Johnny Doe title-cases to "Johnny Doe" with width 60.0 -- outside tolerance
+
+    @patch("unredact.pipeline.word_filter._get_associate_firsts")
+    @patch("unredact.pipeline.word_filter._get_associate_lasts")
+    @patch("unredact.pipeline.word_filter._get_associate_variants")
+    def test_context_chars(self, mock_variants, mock_lasts, mock_firsts):
+        mock_firsts.return_value = ["john"]
+        mock_lasts.return_value = ["doe"]
+        mock_variants.return_value = []
+
+        font = _mock_font({
+            "<John Doe>": 60.0,
+            "<": 5.0,
+            ">": 5.0,
+        })
+
+        results = solve_full_name_dictionary(font, 50.0, 1.0, left_context="<", right_context=">")
+        assert len(results) == 1
+        assert results[0].text == "John Doe"
+
+    @patch("unredact.pipeline.word_filter._get_associate_firsts")
+    @patch("unredact.pipeline.word_filter._get_associate_lasts")
+    @patch("unredact.pipeline.word_filter._get_associate_variants")
+    def test_dedup_variants_and_cartesian(self, mock_variants, mock_lasts, mock_firsts):
+        mock_firsts.return_value = ["john"]
+        mock_lasts.return_value = ["doe"]
+        mock_variants.return_value = ["john doe"]  # duplicate of cartesian result
+
+        font = _mock_font({"John Doe": 50.0})
+
+        results = solve_full_name_dictionary(font, 50.0, 1.0)
+        texts = [r.text for r in results]
+        assert texts.count("John Doe") == 1  # no duplicates
+
+    @patch("unredact.pipeline.word_filter._get_associate_firsts")
+    @patch("unredact.pipeline.word_filter._get_associate_lasts")
+    @patch("unredact.pipeline.word_filter._get_associate_variants")
+    def test_sorted_by_error(self, mock_variants, mock_lasts, mock_firsts):
+        mock_firsts.return_value = ["john", "jane"]
+        mock_lasts.return_value = ["doe"]
+        mock_variants.return_value = []
+
+        font = _mock_font({"John Doe": 50.5, "Jane Doe": 50.0})
+
+        results = solve_full_name_dictionary(font, 50.0, 1.0)
+        assert len(results) == 2
+        assert results[0].error <= results[1].error
