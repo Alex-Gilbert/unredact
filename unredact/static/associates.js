@@ -2,7 +2,7 @@
 /** Associate matching — fuzzy name lookup against the Epstein associate database. */
 
 import { state } from './state.js';
-import { solveFilterPrefix, solveFilterSuffix, popoverEl, escapeHtml } from './dom.js';
+import { solveKnownStart, solveKnownEnd, popoverEl, escapeHtml } from './dom.js';
 
 const MATCH_TYPE_WEIGHTS = {
   full: 4,
@@ -21,8 +21,8 @@ const MATCH_TYPE_WEIGHTS = {
 export function matchAssociates(text) {
   if (!state.associates?.names) return [];
 
-  const prefix = solveFilterPrefix.value.toLowerCase().trim();
-  const suffix = solveFilterSuffix.value.toLowerCase().trim();
+  const prefix = solveKnownStart.value.toLowerCase().trim();
+  const suffix = solveKnownEnd.value.toLowerCase().trim();
   const gapKey = text.toLowerCase().trim();
 
   const keysToTry = new Set([gapKey]);
@@ -100,8 +100,8 @@ export function isVictimMatch(text) {
   if (!vs || vs.size === 0) return false;
   const key = text.toLowerCase().trim();
   if (vs.has(key)) return true;
-  const prefix = solveFilterPrefix.value.toLowerCase().trim();
-  const suffix = solveFilterSuffix.value.toLowerCase().trim();
+  const prefix = solveKnownStart.value.toLowerCase().trim();
+  const suffix = solveKnownEnd.value.toLowerCase().trim();
   if (prefix || suffix) {
     if (vs.has(prefix + key + suffix)) return true;
     if (prefix && vs.has(prefix + key)) return true;
