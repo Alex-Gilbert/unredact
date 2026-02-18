@@ -59,6 +59,7 @@ pub fn solve_full_name(
     target: f64,
     tolerance: f64,
     uppercase_only: bool,
+    max_results: usize,
 ) -> Vec<SolveResult> {
     let n = word_charset.len();
 
@@ -170,6 +171,7 @@ pub fn solve_full_name(
         &equiv1, &byte_to_idx, first_deduped, body_deduped,
         &equiv2, &deduped2,
         0, 0.0, 0, &mut Vec::new(), true,
+        max_results,
         &mut results, &mut seen,
     );
 
@@ -209,9 +211,14 @@ fn dfs_first(
     last_idx: usize,
     path: &mut Vec<u8>,
     is_start: bool,
+    max_results: usize,
     results: &mut Vec<SolveResult>,
     seen: &mut HashSet<String>,
 ) {
+    if max_results > 0 && results.len() >= max_results {
+        return;
+    }
+
     // At valid first-word leaf, solve second word
     if depth >= min_word_len && !is_start {
         let first_width = acc_width + wt1.right_edge[last_idx];
@@ -223,19 +230,29 @@ fn dfs_first(
             let auto_min2 = auto_min2.max(min_word_len);
 
             if auto_min2 <= auto_max2 {
+                // Cap inner solve to remaining budget
+                let inner_limit = if max_results > 0 {
+                    max_results.saturating_sub(results.len())
+                } else {
+                    0
+                };
                 let second_results = solve_subtree(
                     wt2, remaining, tolerance,
                     auto_min2, auto_max2,
                     "", 0.0, -1,
                     constraint, 0,
                     equiv2, deduped2,
+                    inner_limit,
                 );
 
                 // Expand first word (all class-member variants)
                 let first_expanded = expand_match(path, equiv1, charset, byte_to_idx);
-                for first_bytes in &first_expanded {
+                'outer: for first_bytes in &first_expanded {
                     let first_text = unsafe { String::from_utf8_unchecked(first_bytes.clone()) };
                     for r2 in &second_results {
+                        if max_results > 0 && results.len() >= max_results {
+                            break 'outer;
+                        }
                         let full_text = format!("{} {}", first_text, r2.text);
                         if !seen.contains(&full_text) {
                             let full_width = first_width + sp + r2.width;
@@ -293,6 +310,7 @@ fn dfs_first(
             equiv1, byte_to_idx, first_deduped, body_deduped,
             equiv2, deduped2,
             depth + 1, new_width, next_idx, path, false,
+            max_results,
             results, seen,
         );
         path.pop();
