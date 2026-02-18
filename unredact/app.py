@@ -21,7 +21,7 @@ from unredact.pipeline.font_detect import CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.analyze_page import analyze_page
 from unredact.pipeline.detect_redactions import spot_redaction
 from unredact.pipeline.solver import build_constraint, SolveResult
-from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary
+from unredact.pipeline.dictionary import DictionaryStore, solve_dictionary, solve_full_name_dictionary
 from unredact.pipeline.word_filter import _get_emails
 from unredact.pipeline.width_table import build_width_table, CHARSETS
 
@@ -362,6 +362,27 @@ async def solve(req: SolveRequest):
                             "error_px": round(r.error, 2),
                             "source": "emails",
                         })
+
+            # Full-name dictionary solve (associate names)
+            if use_full_name and not _active_solves.get(solve_id):
+                fn_results = solve_full_name_dictionary(
+                    font, req.gap_width_px, req.tolerance_px,
+                    req.left_context, req.right_context,
+                    uppercase_only=(charset_name == "full_name_caps"),
+                )
+                for r in fn_results:
+                    if _active_solves.get(solve_id):
+                        break
+                    if r.text in found_texts:
+                        continue
+                    found_texts.add(r.text)
+                    yield json.dumps({
+                        "status": "match",
+                        "text": r.text,
+                        "width_px": round(r.width, 2),
+                        "error_px": round(r.error, 2),
+                        "source": "names",
+                    })
 
             if req.mode in ("enumerate", "both") and not _active_solves.get(solve_id):
                 # Build payload and call Rust solver (streaming SSE)
