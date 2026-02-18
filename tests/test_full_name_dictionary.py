@@ -40,7 +40,7 @@ class TestSolveFullNameDictionary:
 
         font = _mock_font({"JOHN DOE": 55.0})
 
-        results = solve_full_name_dictionary(font, 55.0, 1.0, uppercase_only=True)
+        results = solve_full_name_dictionary(font, 55.0, 1.0, casing="uppercase")
 
         assert len(results) == 1
         assert results[0].text == "JOHN DOE"

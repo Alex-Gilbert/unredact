@@ -62,19 +62,33 @@ def solve_dictionary(
     return results
 
 
+def _apply_casing(text: str, casing: str) -> str:
+    """Apply casing to a name string."""
+    if casing == "uppercase":
+        return text.upper()
+    elif casing == "capitalized":
+        return text.title()
+    return text
+
+
 def solve_full_name_dictionary(
     font: ImageFont.FreeTypeFont,
     target_width: float,
     tolerance: float = 0.0,
     left_context: str = "",
     right_context: str = "",
-    uppercase_only: bool = False,
+    casing: str = "capitalized",
+    known_start: str = "",
+    known_end: str = "",
 ) -> list[SolveResult]:
     """Match associate first x last name combinations against target width.
 
     Generates the Cartesian product of associate first and last names,
-    applies casing (Title Case or UPPER), and checks each combination's
-    rendered width. Also checks associate name variants (initials, nicknames).
+    applies casing, and checks each combination's rendered width.
+    Also checks associate name variants (initials, nicknames).
+
+    If known_start/known_end are set, filters candidates and measures
+    only the unknown portion against the target width.
     """
     from unredact.pipeline.word_filter import (
         _get_associate_firsts,
@@ -89,40 +103,70 @@ def solve_full_name_dictionary(
     results: list[SolveResult] = []
     seen: set[str] = set()
 
-    def _check(text: str):
-        if text in seen:
-            return
-        seen.add(text)
+    ks_lower = known_start.lower()
+    ke_lower = known_end.lower()
 
-        if left_context or right_context:
-            full = left_context + text + right_context
-            full_len = font.getlength(full)
-            left_len = font.getlength(left_context) if left_context else 0.0
-            right_len = font.getlength(right_context) if right_context else 0.0
-            width = full_len - left_len - right_len
+    def _check(raw: str, display: str):
+        """Check a candidate. raw is lowercase, display is cased."""
+        if display in seen:
+            return
+        seen.add(display)
+
+        # Filter by known start/end
+        if ks_lower and not raw.startswith(ks_lower):
+            return
+        if ke_lower and not raw.endswith(ke_lower):
+            return
+
+        if known_start or known_end:
+            # Measure only the unknown portion
+            end_idx = len(raw) - len(known_end) if known_end else len(raw)
+            unknown_raw = raw[len(known_start):end_idx]
+            if not unknown_raw:
+                return
+            unknown_display = _apply_casing(unknown_raw, casing)
+            # If known_start exists and casing is capitalized, unknown part is mid-word
+            if known_start and casing == "capitalized":
+                # The unknown part follows known text, so it's lowercase
+                # (title() would wrongly capitalize first char of unknown)
+                unknown_display = unknown_raw.lower()
+
+            effective_left = known_start[-1] if known_start else left_context
+            effective_right = known_end[0] if known_end else right_context
+
+            if effective_left or effective_right:
+                full = effective_left + unknown_display + effective_right
+                full_len = font.getlength(full)
+                left_len = font.getlength(effective_left) if effective_left else 0.0
+                right_len = font.getlength(effective_right) if effective_right else 0.0
+                width = full_len - left_len - right_len
+            else:
+                width = font.getlength(unknown_display)
         else:
-            width = font.getlength(text)
+            if left_context or right_context:
+                full = left_context + display + right_context
+                full_len = font.getlength(full)
+                left_len = font.getlength(left_context) if left_context else 0.0
+                right_len = font.getlength(right_context) if right_context else 0.0
+                width = full_len - left_len - right_len
+            else:
+                width = font.getlength(display)
 
         error = abs(width - target_width)
         if error <= tolerance:
-            results.append(SolveResult(text=text, width=float(width), error=float(error)))
+            results.append(SolveResult(text=display, width=float(width), error=float(error)))
 
     # Cartesian product of first x last names
     for first in firsts:
         for last in lasts:
-            if uppercase_only:
-                text = (first + " " + last).upper()
-            else:
-                text = first.title() + " " + last.title()
-            _check(text)
+            raw = first + " " + last
+            display = _apply_casing(raw, casing)
+            _check(raw, display)
 
     # Associate variants (J. Doe, Jeff Epstein, etc.)
     for variant in variants:
-        if uppercase_only:
-            text = variant.upper()
-        else:
-            text = variant.title()
-        _check(text)
+        display = _apply_casing(variant, casing)
+        _check(variant.lower(), display)
 
     results.sort(key=lambda r: (r.error, r.text))
     return results
