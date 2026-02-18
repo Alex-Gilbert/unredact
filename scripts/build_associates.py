@@ -244,6 +244,53 @@ def process_associates(
     return {"names": names, "persons": persons, "victim_names": victim_names}
 
 
+def extract_name_lists(registry: list[dict]) -> tuple[set[str], set[str]]:
+    """Extract unique first and last names from the persons registry.
+
+    Includes nickname expansions. Returns (first_names, last_names) as
+    lowercase sets, filtered to alpha-only strings of length >= 2.
+    """
+    firsts: set[str] = set()
+    lasts: set[str] = set()
+
+    for person in registry:
+        name = person["name"]
+        parts = name.strip().split()
+        if len(parts) < 2:
+            continue
+        first = parts[0].lower()
+        last = parts[-1].lower()
+
+        if first.isalpha() and len(first) >= 2:
+            firsts.add(first)
+            # Add nicknames
+            if first in NICKNAMES:
+                for nick in NICKNAMES[first]:
+                    if nick.isalpha() and len(nick) >= 2:
+                        firsts.add(nick)
+
+        if last.isalpha() and len(last) >= 2:
+            lasts.add(last)
+
+        # Also process aliases
+        for alias in person.get("aliases", []):
+            alias_parts = alias.strip().split()
+            if len(alias_parts) < 2:
+                continue
+            af = alias_parts[0].lower()
+            al = alias_parts[-1].lower()
+            if af.isalpha() and len(af) >= 2:
+                firsts.add(af)
+                if af in NICKNAMES:
+                    for nick in NICKNAMES[af]:
+                        if nick.isalpha() and len(nick) >= 2:
+                            firsts.add(nick)
+            if al.isalpha() and len(al) >= 2:
+                lasts.add(al)
+
+    return firsts, lasts
+
+
 def download_data(data_dir: Path) -> tuple[list, list]:
     """Download the rhowardstone data files if not already present.
 
@@ -290,6 +337,15 @@ def main():
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(json.dumps(result, separators=(",", ":")))
     print(f"Wrote {OUTPUT_PATH}")
+
+    # Write focused name lists
+    firsts, lasts = extract_name_lists(registry)
+    first_path = OUTPUT_PATH.parent / "associate_first_names.txt"
+    last_path = OUTPUT_PATH.parent / "associate_last_names.txt"
+    first_path.write_text("\n".join(sorted(firsts)) + "\n")
+    last_path.write_text("\n".join(sorted(lasts)) + "\n")
+    print(f"Wrote {len(firsts)} first names to {first_path}")
+    print(f"Wrote {len(lasts)} last names to {last_path}")
 
 
 if __name__ == "__main__":
