@@ -158,6 +158,7 @@ async fn handle_solve(
                 prefix, *prefix_width, *last_idx,
                 &constraint, *pfx_state,
                 &equiv, &deduped_allowed,
+                result_limit,
             );
             results.sort_by(|a, b| a.error.partial_cmp(&b.error).unwrap());
 
@@ -205,6 +206,7 @@ async fn handle_full_name(
             &req.wt2_table, &req.wt2_right_edge,
             &req.space_advance, &req.left_after_space,
             req.target, req.tolerance, req.uppercase_only,
+            result_limit,
         );
 
         let mut sent = 0;

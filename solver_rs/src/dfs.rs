@@ -77,6 +77,7 @@ fn compute_state_max(wt: &WidthTable, constraint: &Constraint) -> Vec<f64> {
 }
 
 /// Solve a single subtree: find all strings matching the target width.
+/// Stops early once `max_results` matches are found (0 = unlimited).
 pub fn solve_subtree(
     wt: &WidthTable,
     target: f64,
@@ -90,6 +91,7 @@ pub fn solve_subtree(
     start_state: usize,
     equiv: &EquivClasses,
     deduped_allowed: &[Vec<usize>],
+    max_results: usize,
 ) -> Vec<SolveResult> {
     let smax = compute_state_max(wt, constraint);
     let byte_to_idx = build_byte_to_idx(&wt.charset);
@@ -98,6 +100,9 @@ pub fn solve_subtree(
     if prefix.is_empty() {
         // Start from scratch — iterate first chars (deduped: one representative per class)
         for &first_idx in &deduped_allowed[start_state] {
+            if max_results > 0 && results.len() >= max_results {
+                break;
+            }
             let start_width = wt.left_edge[first_idx];
             if start_width > target + tolerance {
                 continue;
@@ -130,6 +135,7 @@ pub fn solve_subtree(
                 &mut path,
                 ns as usize,
                 0, // prefix_len
+                max_results,
                 &mut results,
             );
         }
@@ -152,6 +158,7 @@ pub fn solve_subtree(
             &mut path,
             start_state,
             prefix.len(),
+            max_results,
             &mut results,
         );
     }
@@ -177,8 +184,13 @@ fn dfs(
     path: &mut Vec<u8>,
     cstate: usize,
     prefix_len: usize,
+    max_results: usize,
     results: &mut Vec<SolveResult>,
 ) {
+    if max_results > 0 && results.len() >= max_results {
+        return;
+    }
+
     let current_length = prefix_len + depth;
 
     if current_length >= min_length && constraint.accept_states[cstate] {
@@ -242,6 +254,7 @@ fn dfs(
             path,
             ns as usize,
             prefix_len,
+            max_results,
             results,
         );
         path.pop();
@@ -607,6 +620,7 @@ mod tests {
             "", 0.0, -1,
             &constraint, 0,
             &equiv, &deduped,
+            0,
         );
         let mut texts: Vec<String> = results.iter().map(|r| r.text.clone()).collect();
         texts.sort();
@@ -635,6 +649,7 @@ mod tests {
             "", 0.0, -1,
             &constraint, 0,
             &equiv, &deduped,
+            0,
         );
         for r in &results {
             assert!((r.width - 15.0).abs() <= 1.0, "result {} has error {} > tolerance", r.text, r.error);
@@ -667,6 +682,7 @@ mod tests {
             "", 0.0, -1,
             &constraint, 0,
             &equiv, &deduped,
+            0,
         );
         let mut texts: Vec<String> = results.iter().map(|r| r.text.clone()).collect();
         texts.sort();
