@@ -6,5 +6,6 @@ dist/
 build/
 .worktrees/
 .pids/
+.env
 solver_rs/target/
 scripts/.cache/

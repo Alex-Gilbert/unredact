@@ -115,6 +115,8 @@ function startAnalysisSSE() {
     if (data.event === "page_complete") {
       // Reload the page data to pick up pre-computed analysis
       loadPageData(data.page);
+    } else if (data.event === "error") {
+      showToast(`Page ${data.page}: ${data.message}`, "error");
     } else if (data.event === "done") {
       es.close();
       showToast("Analysis complete");
@@ -304,6 +306,33 @@ canvas.addEventListener("mousedown", (e) => {
   }
 });
 
+canvas.addEventListener("dblclick", async (e) => {
+  const rect = rightPanel.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const doc = screenToDoc(sx, sy);
+
+  const resp = await fetch(`/api/doc/${state.docId}/page/${state.currentPage}/spot`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ x: Math.round(doc.x), y: Math.round(doc.y) }),
+  });
+  if (!resp.ok) {
+    showToast("No redaction found at that spot", "error");
+    return;
+  }
+  const r = await resp.json();
+  state.redactions[r.id] = {
+    id: r.id, x: r.x, y: r.y, w: r.w, h: r.h,
+    page: state.currentPage,
+    status: "unanalyzed",
+    analysis: null, solution: null, preview: null,
+  };
+  renderRedactionList();
+  renderCanvas();
+  activateRedaction(r.id);
+});
+
 canvas.addEventListener("mousemove", (e) => {
   const rect = rightPanel.getBoundingClientRect();
   const sx = e.clientX - rect.left;
@@ -365,6 +394,67 @@ solveAccept.addEventListener("click", () => {
   closePopover();
   renderRedactionList();
   renderCanvas();
+});
+
+// ── Export annotations (Ctrl+E) ──
+
+function exportAnnotations() {
+  const pages = {};
+  for (const r of Object.values(state.redactions)) {
+    if (!pages[r.page]) pages[r.page] = [];
+    const entry = {
+      id: r.id,
+      x: r.x, y: r.y, w: r.w, h: r.h,
+      status: r.status,
+    };
+    if (r.overrides) {
+      entry.overrides = { ...r.overrides };
+    }
+    if (r.analysis) {
+      entry.analysis = {
+        font: r.analysis.font,
+        gap: r.analysis.gap,
+        line: r.analysis.line,
+        segments: r.analysis.segments,
+        offset_x: r.analysis.offset_x,
+        offset_y: r.analysis.offset_y,
+      };
+    }
+    if (r.solution) {
+      entry.solution = r.solution;
+    }
+    pages[r.page].push(entry);
+  }
+  // Sort each page's redactions top-to-bottom, left-to-right
+  for (const p of Object.values(pages)) {
+    p.sort((a, b) => Math.abs(a.y - b.y) > 5 ? a.y - b.y : a.x - b.x);
+  }
+  const data = { docId: state.docId, pageCount: state.pageCount, pages };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `annotations-${state.docId}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("Exported annotations");
+}
+
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "e") {
+    e.preventDefault();
+    exportAnnotations();
+  }
+  if ((e.key === "Delete" || e.key === "Backspace") && state.activeRedaction) {
+    // Don't delete if user is typing in an input
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    delete state.redactions[state.activeRedaction];
+    state.activeRedaction = null;
+    closePopover();
+    renderRedactionList();
+    renderCanvas();
+    showToast("Redaction deleted");
+  }
 });
 
 // ── Initialize all modules ──
