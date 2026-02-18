@@ -10,7 +10,8 @@ import {
   leftTextInput, rightTextInput, redactionMarker, textReset,
   solveResults, solveStatus, solveStart, solveStop, solveAccept,
   solveTolerance, solveTolValue,
-  solveFilterPrefix, solveFilterSuffix,
+  solveKnownStart, solveKnownEnd,
+  solveMode, filterLabel,
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
 
@@ -31,8 +32,8 @@ export function openPopover(id) {
   const r = state.redactions[id];
   if (!r || !r.analysis) return;
 
-  solveFilterPrefix.value = "";
-  solveFilterSuffix.value = "";
+  solveKnownStart.value = "";
+  solveKnownEnd.value = "";
 
   solveResults.innerHTML = "";
   solveStatus.textContent = "";
@@ -161,5 +162,9 @@ export function initPopover() {
 
   solveTolerance.addEventListener("input", () => {
     solveTolValue.textContent = solveTolerance.value;
+  });
+
+  solveMode.addEventListener("change", () => {
+    filterLabel.hidden = solveMode.value !== "enumerate";
   });
 }

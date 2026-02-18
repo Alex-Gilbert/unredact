@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import {
   solveCharset, solveTolerance, solveMode, solveFilter,
-  solveFilterPrefix, solveFilterSuffix,
+  solveKnownStart, solveKnownEnd,
   solveResults, solveStatus, solveStart, solveStop,
   solveAccept, redactionMarker, escapeHtml,
 } from './dom.js';
@@ -49,8 +49,8 @@ export function startSolve() {
     },
     mode: solveMode.value,
     word_filter: solveFilter.value,
-    filter_prefix: solveFilterPrefix.value,
-    filter_suffix: solveFilterSuffix.value,
+    known_start: solveKnownStart.value,
+    known_end: solveKnownEnd.value,
   };
 
   const abortController = new AbortController();
