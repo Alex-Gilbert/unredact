@@ -175,8 +175,8 @@ async def test_solve_endpoint_enumerate():
 
 
 @pytest.mark.anyio
-async def test_solve_endpoint_dictionary():
-    """POST /api/solve with mode=dictionary should work."""
+async def test_solve_endpoint_name_mode():
+    """POST /api/solve with mode=name should work."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/fonts")
@@ -193,31 +193,9 @@ async def test_solve_endpoint_dictionary():
             "hints": {
                 "charset": "lowercase",
             },
-            "mode": "dictionary",
+            "mode": "name",
         })
         assert resp.status_code == 200
-
-
-@pytest.mark.anyio
-async def test_dictionary_crud():
-    """Dictionary upload, list, delete endpoints."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/api/dictionary", json={
-            "name": "test-names",
-            "entries": ["Alice", "Bob", "Charlie"],
-        })
-        assert resp.status_code == 200
-
-        resp = await client.get("/api/dictionary")
-        assert resp.status_code == 200
-        assert "test-names" in resp.json()["dictionaries"]
-
-        resp = await client.delete("/api/dictionary/test-names")
-        assert resp.status_code == 200
-
-        resp = await client.get("/api/dictionary")
-        assert "test-names" not in resp.json()["dictionaries"]
 
 
 @pytest.mark.anyio
