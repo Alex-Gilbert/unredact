@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from PIL import Image, ImageFont
 from sse_starlette.sse import EventSourceResponse
 
+from unredact.pipeline.ocr import ocr_page
 from unredact.pipeline.rasterize import rasterize_pdf
 from unredact.pipeline.font_detect import CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.analyze_page import analyze_page
@@ -125,6 +126,46 @@ async def get_font(font_id: str):
     if not path:
         return JSONResponse({"error": "font not found"}, status_code=404)
     return Response(content=path.read_bytes(), media_type="font/ttf")
+
+
+@app.get("/api/doc/{doc_id}/ocr")
+async def ocr_doc(doc_id: str):
+    """SSE endpoint that runs OCR on all pages and caches results."""
+    doc = _docs.get(doc_id)
+    if not doc:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    async def event_generator():
+        for page_num, pd in doc["pages"].items():
+            if pd["ocr_lines"] is not None:
+                yield json.dumps({
+                    "event": "page_ocr_complete",
+                    "page": page_num,
+                    "num_lines": len(pd["ocr_lines"]),
+                })
+                continue
+
+            page_img = pd["original"]
+            try:
+                lines = await asyncio.to_thread(ocr_page, page_img)
+            except Exception as exc:
+                yield json.dumps({
+                    "event": "error",
+                    "page": page_num,
+                    "message": str(exc),
+                })
+                continue
+
+            pd["ocr_lines"] = lines
+            yield json.dumps({
+                "event": "page_ocr_complete",
+                "page": page_num,
+                "num_lines": len(lines),
+            })
+
+        yield json.dumps({"event": "ocr_complete"})
+
+    return EventSourceResponse(event_generator())
 
 
 @app.get("/api/doc/{doc_id}/analyze")

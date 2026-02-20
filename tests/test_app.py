@@ -42,6 +42,22 @@ async def test_get_page_original(pdf_bytes: bytes):
 
 
 @pytest.mark.anyio
+async def test_ocr_endpoint_streams_results(pdf_bytes: bytes):
+    """GET /api/doc/{id}/ocr should stream OCR progress and cache results."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/upload",
+            files={"file": ("test.pdf", pdf_bytes, "application/pdf")},
+        )
+        doc_id = resp.json()["doc_id"]
+
+        resp = await client.get(f"/api/doc/{doc_id}/ocr")
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
+
+
+@pytest.mark.anyio
 async def test_get_page_data_returns_redactions(pdf_bytes: bytes):
     """Page data should return redaction bboxes, not OCR lines."""
     transport = ASGITransport(app=app)
