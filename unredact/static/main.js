@@ -12,7 +12,7 @@ import { renderCanvas } from './canvas.js';
 import { applyTransform, screenToDoc, hitTestRedaction, initViewport } from './viewport.js';
 import { openPopover, closePopover, setOnPopoverClose, updatePosDisplay, initPopover } from './popover.js';
 import { stopSolve, acceptSolution, initSolver } from './solver.js';
-import { showInlineEdit, hideInlineEdit, syncInlineEdit } from './inline-edit.js';
+
 
 // ── Font loading ──
 
@@ -329,7 +329,6 @@ function activateRedaction(id) {
 
   if (r.status === "analyzed" || r.status === "solved") {
     openPopover(id);
-    showInlineEdit(id);
   }
 }
 
@@ -581,21 +580,11 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     exportAnnotations();
   }
-  if ((e.key === "Delete" || e.key === "Backspace") && state.activeRedaction) {
-    // Don't delete if user is typing in an input
-    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-    delete state.redactions[state.activeRedaction];
-    state.activeRedaction = null;
-    closePopover();
-    renderRedactionList();
-    renderCanvas();
-    showToast("Redaction deleted");
-  }
 });
 
 // ── Initialize all modules ──
 
-setOnPopoverClose(() => { stopSolve(); hideInlineEdit(); });
+setOnPopoverClose(stopSolve);
 initViewport();
 initPopover();
 initSolver();
