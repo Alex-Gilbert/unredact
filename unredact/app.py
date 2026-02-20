@@ -178,8 +178,9 @@ async def analyze_doc(doc_id: str):
     async def event_generator():
         for page_num, pd in doc["pages"].items():
             page_img = pd["original"]
+            ocr_lines = pd.get("ocr_lines")
             try:
-                analysis = await analyze_page(page_img)
+                analysis = await analyze_page(page_img, ocr_lines=ocr_lines)
             except Exception as exc:
                 yield json.dumps({
                     "event": "error",
@@ -189,6 +190,10 @@ async def analyze_doc(doc_id: str):
                 continue
 
             pd["analysis"] = analysis
+
+            # Cache OCR lines if not already cached
+            if pd.get("ocr_lines") is None:
+                pd["ocr_lines"] = analysis.lines
 
             redactions_json = []
             for r in analysis.redactions:
