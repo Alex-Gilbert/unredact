@@ -520,9 +520,7 @@ async def spot(doc_id: str, page: int, data: dict):
     ocr_lines = pd.get("ocr_lines")
     analysis_json = None
     if ocr_lines:
-        ra = await asyncio.to_thread(
-            analyze_spot_redaction, page_img, ocr_lines, result,
-        )
+        ra = await analyze_spot_redaction(page_img, ocr_lines, result)
         if ra is not None:
             font_id = _make_font_id(ra.font.font_name)
             segments = []

@@ -14,7 +14,7 @@ import numpy as np
 from PIL import Image
 
 from unredact.pipeline.ocr import ocr_page, OcrLine
-from unredact.pipeline.llm_detect import detect_redactions_llm, LlmRedaction
+from unredact.pipeline.llm_detect import detect_redactions_llm, LlmRedaction, identify_boundary_text
 from unredact.pipeline.detect_redactions import find_redaction_in_region, Redaction
 from unredact.pipeline.font_detect import detect_font_masked, align_text_to_page, FontMatch
 
@@ -202,17 +202,17 @@ async def analyze_page(
     return PageAnalysis(lines=lines, redactions=results)
 
 
-def analyze_spot_redaction(
+async def analyze_spot_redaction(
     page_image: Image.Image,
     ocr_lines: list[OcrLine],
     box: Redaction,
 ) -> RedactionAnalysis | None:
     """Run analysis on a single known redaction bounding box.
 
-    Uses cached OCR data to:
+    Uses cached OCR data and an LLM call to:
     1. Find the OCR line containing the redaction
     2. Detect the font (with redaction masking)
-    3. Extract left/right context text
+    3. Use LLM to identify clean boundary text (handles garbled OCR)
     4. Compute pixel alignment offsets
 
     Args:
@@ -244,14 +244,15 @@ def analyze_spot_redaction(
     line = best_line
     redaction_boxes = [(box.x, box.y, box.w, box.h)]
 
-    # Font detection with masking
-    font = detect_font_masked(line, page_image, redaction_boxes)
+    # Font detection with masking (blocking — run in thread)
+    font = await asyncio.to_thread(
+        detect_font_masked, line, page_image, redaction_boxes,
+    )
 
-    # Extract left/right text using center-point char filtering
-    left_chars = [c for c in line.chars if c.x + c.w / 2 < box.x]
-    right_chars = [c for c in line.chars if c.x + c.w / 2 > box.x + box.w]
-    left_text = "".join(c.text for c in left_chars).strip()
-    right_text = "".join(c.text for c in right_chars).strip()
+    # LLM boundary text identification (async)
+    boundary = await identify_boundary_text(line, box.x, box.w)
+    left_text = boundary.left_text
+    right_text = boundary.right_text
 
     # Pixel alignment
     offset_x = 0.0
@@ -263,11 +264,13 @@ def analyze_spot_redaction(
         text_region_x2 = min(page_image.width, box.x + 20)
         text_region_y1 = max(0, line.y - 10)
         text_region_y2 = min(page_image.height, line.y + line.h + 10)
-        text_crop = np.array(page_image.convert("L").crop(
-            (text_region_x1, text_region_y1, text_region_x2, text_region_y2)
-        ))
-        align_dx, align_dy = align_text_to_page(
-            left_text, pil_font, text_crop,
+        text_crop = await asyncio.to_thread(
+            lambda: np.array(page_image.convert("L").crop(
+                (text_region_x1, text_region_y1, text_region_x2, text_region_y2)
+            ))
+        )
+        align_dx, align_dy = await asyncio.to_thread(
+            align_text_to_page, left_text, pil_font, text_crop,
         )
         offset_x = float(text_region_x1 + align_dx - line.x)
         offset_y = float(text_region_y1 + align_dy - line.y)
