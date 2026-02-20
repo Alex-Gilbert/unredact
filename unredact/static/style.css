@@ -166,6 +166,13 @@ main {
   cursor: not-allowed;
 }
 
+#ocr-status {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 4px;
+  min-height: 16px;
+}
+
 /* Redaction list items */
 .redaction-item {
   padding: 0.5rem 0.75rem;
@@ -271,6 +278,14 @@ main {
   top: 0;
   left: 0;
   pointer-events: auto;
+}
+
+#inline-edit-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
 }
 
 .loading {

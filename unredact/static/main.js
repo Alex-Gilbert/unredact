@@ -145,10 +145,13 @@ function startOcrSSE() {
   es.onmessage = (e) => {
     const data = JSON.parse(e.data);
     if (data.event === "page_ocr_complete") {
-      // OCR cached for this page on the backend
+      const statusEl = document.getElementById("ocr-status");
+      if (statusEl) statusEl.textContent = `OCR: page ${data.page} done`;
     } else if (data.event === "ocr_complete") {
       es.close();
       state.ocrReady = true;
+      const statusEl = document.getElementById("ocr-status");
+      if (statusEl) statusEl.textContent = "OCR complete";
       showToast("OCR complete — ready to detect redactions", "success");
       if (detectBtn) detectBtn.disabled = false;
     } else if (data.event === "error") {
@@ -363,6 +366,13 @@ canvas.addEventListener("dblclick", async (e) => {
     return;
   }
   const r = await resp.json();
+
+  if (!r.analysis) {
+    showToast(state.ocrReady
+      ? "No text found near this redaction"
+      : "OCR still processing — redaction added without analysis",
+      "info");
+  }
 
   const redaction = {
     id: r.id, x: r.x, y: r.y, w: r.w, h: r.h,
