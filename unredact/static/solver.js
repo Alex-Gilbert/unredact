@@ -200,14 +200,18 @@ export function acceptSolution() {
   const r = state.redactions[id];
   if (!r || !r.preview) return;
 
-  r.status = "solved";
   const o = r.overrides || {};
+  const leftText = o.leftText ?? "";
+  const rightText = o.rightText ?? "";
+
+  r.status = "approved";
   const solFontName = state.fonts.find(f => f.id === (o.fontId || r.analysis.font.id))?.name || r.analysis.font.name;
   r.solution = {
     text: r.preview,
     fontName: solFontName,
     fontSize: o.fontSize || r.analysis.font.size,
   };
+  r.approvedText = leftText + r.preview + rightText;
   r.preview = null;
 }
 
