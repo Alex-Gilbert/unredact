@@ -12,6 +12,7 @@ import { renderCanvas } from './canvas.js';
 import { applyTransform, screenToDoc, hitTestRedaction, initViewport } from './viewport.js';
 import { openPopover, closePopover, setOnPopoverClose, updatePosDisplay, initPopover } from './popover.js';
 import { stopSolve, acceptSolution, initSolver } from './solver.js';
+import { showInlineEdit, hideInlineEdit, syncInlineEdit } from './inline-edit.js';
 
 // ── Font loading ──
 
@@ -325,6 +326,7 @@ function activateRedaction(id) {
 
   if (r.status === "analyzed" || r.status === "solved") {
     openPopover(id);
+    showInlineEdit(id);
   }
 }
 
@@ -443,6 +445,74 @@ window.addEventListener("mouseup", () => {
   if (modDrag) modDrag = null;
 });
 
+// ── Drag handles for resizing redaction bounding boxes ──
+
+let resizeDrag = null;
+
+canvas.addEventListener("mousedown", (e) => {
+  if (e.button !== 0 || e.ctrlKey || e.shiftKey) return;
+  const r = state.redactions[state.activeRedaction];
+  if (!r) return;
+
+  const rect = rightPanel.getBoundingClientRect();
+  const doc = screenToDoc(e.clientX - rect.left, e.clientY - rect.top);
+  const threshold = 8 / state.zoom;
+
+  // Check if near an edge handle
+  let edge = null;
+  if (Math.abs(doc.x - r.x) < threshold && Math.abs(doc.y - (r.y + r.h/2)) < threshold) edge = "left";
+  else if (Math.abs(doc.x - (r.x + r.w)) < threshold && Math.abs(doc.y - (r.y + r.h/2)) < threshold) edge = "right";
+  else if (Math.abs(doc.y - r.y) < threshold && Math.abs(doc.x - (r.x + r.w/2)) < threshold) edge = "top";
+  else if (Math.abs(doc.y - (r.y + r.h)) < threshold && Math.abs(doc.x - (r.x + r.w/2)) < threshold) edge = "bottom";
+
+  if (!edge) return;
+
+  resizeDrag = {
+    edge,
+    startX: e.clientX,
+    startY: e.clientY,
+    origX: r.x,
+    origY: r.y,
+    origW: r.w,
+    origH: r.h,
+  };
+  e.stopPropagation();
+  e.preventDefault();
+}, { capture: true });
+
+window.addEventListener("mousemove", (e) => {
+  if (!resizeDrag) return;
+  const r = state.redactions[state.activeRedaction];
+  if (!r) return;
+
+  const dx = (e.clientX - resizeDrag.startX) / state.zoom;
+  const dy = (e.clientY - resizeDrag.startY) / state.zoom;
+
+  if (resizeDrag.edge === "left") {
+    r.x = Math.round(resizeDrag.origX + dx);
+    r.w = Math.max(10, Math.round(resizeDrag.origW - dx));
+  } else if (resizeDrag.edge === "right") {
+    r.w = Math.max(10, Math.round(resizeDrag.origW + dx));
+  } else if (resizeDrag.edge === "top") {
+    r.y = Math.round(resizeDrag.origY + dy);
+    r.h = Math.max(10, Math.round(resizeDrag.origH - dy));
+  } else if (resizeDrag.edge === "bottom") {
+    r.h = Math.max(10, Math.round(resizeDrag.origH + dy));
+  }
+
+  // Update gap width in overrides to match box width changes
+  if (r.overrides && (resizeDrag.edge === "left" || resizeDrag.edge === "right")) {
+    r.overrides.gapWidth = r.w;
+    gapValue.textContent = String(Math.round(r.w));
+  }
+
+  renderCanvas();
+});
+
+window.addEventListener("mouseup", () => {
+  if (resizeDrag) resizeDrag = null;
+});
+
 // ── Accept solution (wired here to avoid circular dep solver↔main) ──
 
 solveAccept.addEventListener("click", () => {
@@ -515,7 +585,7 @@ document.addEventListener("keydown", (e) => {
 
 // ── Initialize all modules ──
 
-setOnPopoverClose(stopSolve);
+setOnPopoverClose(() => { stopSolve(); hideInlineEdit(); });
 initViewport();
 initPopover();
 initSolver();

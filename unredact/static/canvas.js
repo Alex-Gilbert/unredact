@@ -70,6 +70,23 @@ function measureStyledText(text, fontName, fontSize) {
   return w;
 }
 
+/**
+ * Draw small square handles at the four edges of a redaction for resizing.
+ * @param {import('./types.js').Redaction} r
+ */
+function drawResizeHandles(r) {
+  const sz = 6;
+  ctx.fillStyle = "rgba(0, 120, 255, 0.8)";
+  // Left edge
+  ctx.fillRect(r.x - sz/2, r.y + r.h/2 - sz/2, sz, sz);
+  // Right edge
+  ctx.fillRect(r.x + r.w - sz/2, r.y + r.h/2 - sz/2, sz, sz);
+  // Top edge
+  ctx.fillRect(r.x + r.w/2 - sz/2, r.y - sz/2, sz, sz);
+  // Bottom edge
+  ctx.fillRect(r.x + r.w/2 - sz/2, r.y + r.h - sz/2, sz, sz);
+}
+
 export function renderCanvas() {
   if (!docImage.naturalWidth || !state.fontsReady) return;
 
@@ -93,6 +110,10 @@ export function renderCanvas() {
       drawRedactionAnalyzed(r, isActive);
     } else {
       drawRedactionUnanalyzed(r, isActive);
+    }
+
+    if (r.id === state.activeRedaction) {
+      drawResizeHandles(r);
     }
   }
 }
