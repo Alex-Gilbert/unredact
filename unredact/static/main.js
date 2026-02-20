@@ -361,12 +361,29 @@ canvas.addEventListener("dblclick", async (e) => {
     return;
   }
   const r = await resp.json();
-  state.redactions[r.id] = {
+
+  const redaction = {
     id: r.id, x: r.x, y: r.y, w: r.w, h: r.h,
     page: state.currentPage,
-    status: "unanalyzed",
-    analysis: null, solution: null, preview: null,
+    status: r.analysis ? "analyzed" : "unanalyzed",
+    analysis: r.analysis || null,
+    solution: null,
+    preview: null,
   };
+
+  if (r.analysis) {
+    redaction.overrides = {
+      fontId: r.analysis.font.id,
+      fontSize: r.analysis.font.size,
+      offsetX: r.analysis.offset_x || 0,
+      offsetY: r.analysis.offset_y || 0,
+      gapWidth: r.analysis.gap.w,
+      leftText: r.analysis.segments[0]?.text || "",
+      rightText: r.analysis.segments[1]?.text || "",
+    };
+  }
+
+  state.redactions[r.id] = redaction;
   renderRedactionList();
   renderCanvas();
   activateRedaction(r.id);
