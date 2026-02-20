@@ -230,6 +230,127 @@ def _parse_response(
     return redactions
 
 
+@dataclass
+class BoundaryText:
+    """Clean left/right text around a redaction, as identified by the LLM."""
+
+    left_text: str
+    right_text: str
+
+
+_BOUNDARY_TOOL = {
+    "name": "report_boundary_text",
+    "description": "Report the clean text on each side of a redaction in an OCR line.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "left_text": {
+                "type": "string",
+                "description": (
+                    "Clean text before the redaction, with OCR "
+                    "artifacts removed. Empty string if redaction "
+                    "is at line start."
+                ),
+            },
+            "right_text": {
+                "type": "string",
+                "description": (
+                    "Clean text after the redaction, with OCR "
+                    "artifacts removed. Empty string if redaction "
+                    "is at line end."
+                ),
+            },
+        },
+        "required": ["left_text", "right_text"],
+    },
+}
+
+
+def _build_boundary_prompt(line: OcrLine, box_x: int, box_w: int) -> str:
+    """Build prompt for single-line boundary text identification."""
+    left_chars = [c for c in line.chars if c.x + c.w / 2 < box_x]
+    mid_chars = [
+        c for c in line.chars
+        if box_x <= c.x + c.w / 2 <= box_x + box_w
+    ]
+    right_chars = [c for c in line.chars if c.x + c.w / 2 > box_x + box_w]
+
+    left_raw = "".join(c.text for c in left_chars)
+    mid_raw = "".join(c.text for c in mid_chars)
+    right_raw = "".join(c.text for c in right_chars)
+
+    return (
+        "You are analyzing a single line of OCR text from a scanned legal document. "
+        "Part of this line has been redacted (blacked out), which causes the OCR engine "
+        "to produce garbled characters near the redaction edges.\n\n"
+        f'Full OCR line: {line.text}\n'
+        f'Approximate split: LEFT="{left_raw}" REDACTED="{mid_raw}" RIGHT="{right_raw}"\n\n'
+        "The characters immediately adjacent to the redaction may be misread or truncated "
+        "by the OCR engine. For example, 'Se' might actually be 'Sent' with the 'nt' "
+        "lost to redaction artifacts.\n\n"
+        "Return the clean, corrected text that should appear to the left and right of "
+        "the redaction. Fix any obvious OCR errors near the boundary. Do not include "
+        "any redaction artifacts (brackets, pipes, random characters). "
+        "If the redaction is at the start or end of the line, use an empty string "
+        "for that side."
+    )
+
+
+async def identify_boundary_text(
+    line: OcrLine,
+    box_x: int,
+    box_w: int,
+) -> BoundaryText:
+    """Use LLM to identify clean boundary text around a single redaction.
+
+    Sends a focused prompt with just the one OCR line and redaction position.
+    Falls back to center-point character filtering if the LLM call fails.
+
+    Args:
+        line: The OCR line containing the redaction.
+        box_x: X pixel position of the redaction box.
+        box_w: Width of the redaction box in pixels.
+
+    Returns:
+        BoundaryText with cleaned left and right text.
+    """
+    # Fallback in case LLM is unavailable
+    def _fallback():
+        left = [c for c in line.chars if c.x + c.w / 2 < box_x]
+        right = [c for c in line.chars if c.x + c.w / 2 > box_x + box_w]
+        return BoundaryText(
+            left_text="".join(c.text for c in left).strip(),
+            right_text="".join(c.text for c in right).strip(),
+        )
+
+    try:
+        model = os.environ.get("UNREDACT_LLM_MODEL", _DEFAULT_MODEL)
+        prompt = _build_boundary_prompt(line, box_x, box_w)
+        client = _get_client()
+
+        response = await client.messages.create(
+            model=model,
+            max_tokens=512,
+            tools=[_BOUNDARY_TOOL],
+            tool_choice={"type": "tool", "name": "report_boundary_text"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        for block in response.content:
+            if block.type == "tool_use" and block.name == "report_boundary_text":
+                return BoundaryText(
+                    left_text=block.input.get("left_text", "").strip(),
+                    right_text=block.input.get("right_text", "").strip(),
+                )
+
+        log.warning("LLM boundary response had no tool call, using fallback")
+        return _fallback()
+
+    except Exception:
+        log.warning("LLM boundary call failed, using center-point fallback", exc_info=True)
+        return _fallback()
+
+
 async def detect_redactions_llm(
     lines: list[OcrLine],
 ) -> list[LlmRedaction]:

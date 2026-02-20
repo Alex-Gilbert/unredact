@@ -8,7 +8,7 @@ import pytest
 from PIL import Image
 
 from unredact.pipeline.ocr import OcrChar, OcrLine
-from unredact.pipeline.llm_detect import LlmRedaction
+from unredact.pipeline.llm_detect import LlmRedaction, BoundaryText
 from unredact.pipeline.detect_redactions import Redaction
 from unredact.pipeline.font_detect import FontMatch
 from unredact.pipeline.analyze_page import (
@@ -355,7 +355,8 @@ async def test_analyze_page_uses_precomputed_ocr_lines():
 # test_analyze_spot_redaction
 # ---------------------------------------------------------------------------
 
-def test_analyze_spot_redaction_returns_analysis():
+@pytest.mark.anyio
+async def test_analyze_spot_redaction_returns_analysis():
     """analyze_spot_redaction should return a RedactionAnalysis for a box
     that overlaps an OCR line, with correct font, text, and offsets."""
     line = _make_line_from_words(["Hello", "|||", "world"], y=100, h=20)
@@ -372,30 +373,38 @@ def test_analyze_spot_redaction_returns_analysis():
     font_match = _dummy_font_match()
     page_image = _dummy_page_image()
 
+    boundary = BoundaryText(left_text="Hello", right_text="world")
+
     with (
         patch(
             "unredact.pipeline.analyze_page.detect_font_masked",
             return_value=font_match,
         ),
         patch(
+            "unredact.pipeline.analyze_page.identify_boundary_text",
+            new_callable=AsyncMock,
+            return_value=boundary,
+        ),
+        patch(
             "unredact.pipeline.analyze_page.align_text_to_page",
             return_value=(3, -1),
         ),
     ):
-        result = analyze_spot_redaction(page_image, lines, box)
+        result = await analyze_spot_redaction(page_image, lines, box)
 
     assert result is not None
     assert isinstance(result, RedactionAnalysis)
     assert result.box is box
     assert result.line is line
     assert result.font is font_match
-    assert "Hello" in result.left_text
-    assert "world" in result.right_text
+    assert result.left_text == "Hello"
+    assert result.right_text == "world"
     assert isinstance(result.offset_x, float)
     assert isinstance(result.offset_y, float)
 
 
-def test_analyze_spot_redaction_no_matching_line():
+@pytest.mark.anyio
+async def test_analyze_spot_redaction_no_matching_line():
     """analyze_spot_redaction should return None if no OCR line overlaps."""
     # Line at y=100, box at y=500 — no overlap
     line = _make_line_from_words(["Hello", "world"], y=100, h=20)
@@ -404,20 +413,22 @@ def test_analyze_spot_redaction_no_matching_line():
     box = Redaction(id="spot2", x=50, y=500, w=100, h=20)
     page_image = _dummy_page_image()
 
-    result = analyze_spot_redaction(page_image, lines, box)
+    result = await analyze_spot_redaction(page_image, lines, box)
     assert result is None
 
 
-def test_analyze_spot_redaction_empty_lines():
+@pytest.mark.anyio
+async def test_analyze_spot_redaction_empty_lines():
     """analyze_spot_redaction should return None for empty OCR lines list."""
     box = Redaction(id="spot3", x=50, y=100, w=100, h=20)
     page_image = _dummy_page_image()
 
-    result = analyze_spot_redaction(page_image, [], box)
+    result = await analyze_spot_redaction(page_image, [], box)
     assert result is None
 
 
-def test_analyze_spot_redaction_no_left_text_skips_alignment():
+@pytest.mark.anyio
+async def test_analyze_spot_redaction_no_left_text_skips_alignment():
     """When the box covers the start of the line (no left text),
     alignment should be skipped and offsets should be 0.0."""
     # Box starts at x=50 (same as line start), so no chars to the left
@@ -429,11 +440,20 @@ def test_analyze_spot_redaction_no_left_text_skips_alignment():
     font_match = _dummy_font_match()
     page_image = _dummy_page_image()
 
-    with patch(
-        "unredact.pipeline.analyze_page.detect_font_masked",
-        return_value=font_match,
+    boundary = BoundaryText(left_text="", right_text="world")
+
+    with (
+        patch(
+            "unredact.pipeline.analyze_page.detect_font_masked",
+            return_value=font_match,
+        ),
+        patch(
+            "unredact.pipeline.analyze_page.identify_boundary_text",
+            new_callable=AsyncMock,
+            return_value=boundary,
+        ),
     ):
-        result = analyze_spot_redaction(page_image, lines, box)
+        result = await analyze_spot_redaction(page_image, lines, box)
 
     assert result is not None
     assert result.left_text == ""
@@ -441,7 +461,8 @@ def test_analyze_spot_redaction_no_left_text_skips_alignment():
     assert result.offset_y == 0.0
 
 
-def test_analyze_spot_redaction_integration(sample_page_image):
+@pytest.mark.anyio
+async def test_analyze_spot_redaction_integration(sample_page_image):
     """analyze_spot_redaction should return full analysis for a known bbox."""
     from unredact.pipeline.ocr import ocr_page
 
@@ -468,7 +489,14 @@ def test_analyze_spot_redaction_integration(sample_page_image):
         h=line.h,
     )
 
-    result = analyze_spot_redaction(sample_page_image, lines, box)
+    boundary = BoundaryText(left_text="test left", right_text="test right")
+    with patch(
+        "unredact.pipeline.analyze_page.identify_boundary_text",
+        new_callable=AsyncMock,
+        return_value=boundary,
+    ):
+        result = await analyze_spot_redaction(sample_page_image, lines, box)
+
     assert result is not None
     assert result.box is box
     assert result.line is line
