@@ -228,8 +228,8 @@ main {
 }
 
 .redaction-status.status-approved {
-  color: var(--blue);
-  background: rgba(66, 165, 245, 0.15);
+  color: var(--accent);
+  background: rgba(0, 212, 116, 0.15);
 }
 
 .redaction-status.status-error {
