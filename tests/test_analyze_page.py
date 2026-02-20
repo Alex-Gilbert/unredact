@@ -315,3 +315,36 @@ async def test_analyze_page_font_caching():
     # But both redactions should share the same font
     assert result.redactions[0].font is font_match
     assert result.redactions[1].font is font_match
+
+
+# ---------------------------------------------------------------------------
+# test_analyze_page_uses_precomputed_ocr_lines
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_analyze_page_uses_precomputed_ocr_lines():
+    """When ocr_lines is provided, analyze_page should use them directly
+    without calling ocr_page.  The returned lines must be the same object."""
+    line = _make_line_from_words(["Hello", "world"])
+    precomputed_lines = [line]
+    page_image = _dummy_page_image()
+
+    mock_ocr = patch(
+        "unredact.pipeline.analyze_page.ocr_page",
+        return_value=[],  # should never be called
+    )
+
+    with (
+        mock_ocr as m_ocr,
+        patch(
+            "unredact.pipeline.analyze_page.detect_redactions_llm",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+    ):
+        result = await analyze_page(page_image, ocr_lines=precomputed_lines)
+
+    # ocr_page must not have been called
+    m_ocr.assert_not_called()
+    # The returned lines must be the exact same object (not a copy)
+    assert result.lines is precomputed_lines
