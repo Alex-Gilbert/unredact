@@ -145,7 +145,7 @@ function handleSolveEvent(data, redactionId) {
       const r = state.redactions[redactionId];
       if (!r) return;
       r.preview = data.text;
-      redactionMarker.textContent = data.text;
+      redactionMarker.value = data.text;
       redactionMarker.className = "redaction-marker preview";
       renderCanvas();
       solveResults.querySelectorAll(".solve-result").forEach(el => el.classList.remove("active"));
