@@ -291,17 +291,19 @@ function statusLabel(status) {
     case "unanalyzed": return "unanalyzed";
     case "analyzing": return "analyzing...";
     case "analyzed": return "analyzed";
-    case "solved": return "solved";
+    case "approved": return "approved";
     case "error": return "error";
     default: return status;
   }
 }
 
 function redactionInfoText(r) {
-  if (r.status === "solved" && r.solution) {
-    return r.solution.text;
+  if (r.status === "approved" && r.approvedText) {
+    return r.approvedText.length > 30
+      ? r.approvedText.slice(0, 30) + "..."
+      : r.approvedText;
   }
-  if ((r.status === "analyzed" || r.status === "solved") && r.analysis) {
+  if (r.status === "analyzed" && r.analysis) {
     const segs = r.analysis.segments;
     const left = segs.length > 0 ? segs[0].text : "";
     const right = segs.length > 1 ? segs[1].text : "";
@@ -327,7 +329,7 @@ function activateRedaction(id) {
   renderRedactionList();
   renderCanvas();
 
-  if (r.status === "analyzed" || r.status === "solved") {
+  if (r.status === "analyzed" || r.status === "approved") {
     openPopover(id);
   }
 }
@@ -557,6 +559,9 @@ function exportAnnotations() {
     }
     if (r.solution) {
       entry.solution = r.solution;
+    }
+    if (r.approvedText) {
+      entry.approvedText = r.approvedText;
     }
     pages[r.page].push(entry);
   }
