@@ -280,13 +280,6 @@ main {
   pointer-events: auto;
 }
 
-#inline-edit-layer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  pointer-events: none;
-  transform-origin: 0 0;
-}
 
 .loading {
   color: var(--accent);

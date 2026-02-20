@@ -14,7 +14,6 @@ import {
   solveMode, filterLabel,
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
-import { syncInlineEdit } from './inline-edit.js';
 
 /** @type {(() => void)|null} */
 let _onClose = null;
@@ -141,7 +140,7 @@ export function initPopover() {
     if (!r?.overrides) return;
     r.overrides.leftText = leftTextInput.value;
     renderCanvas();
-    syncInlineEdit(state.activeRedaction);
+
   });
 
   rightTextInput.addEventListener("input", () => {
@@ -149,7 +148,7 @@ export function initPopover() {
     if (!r?.overrides) return;
     r.overrides.rightText = rightTextInput.value;
     renderCanvas();
-    syncInlineEdit(state.activeRedaction);
+
   });
 
   textReset.addEventListener("click", () => {
@@ -161,7 +160,7 @@ export function initPopover() {
     leftTextInput.value = r.overrides.leftText;
     rightTextInput.value = r.overrides.rightText;
     renderCanvas();
-    syncInlineEdit(state.activeRedaction);
+
   });
 
   solveTolerance.addEventListener("input", () => {
