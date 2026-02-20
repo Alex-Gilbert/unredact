@@ -200,3 +200,84 @@ async def analyze_page(
         on_progress("analysis_complete", {"count": len(results)})
 
     return PageAnalysis(lines=lines, redactions=results)
+
+
+def analyze_spot_redaction(
+    page_image: Image.Image,
+    ocr_lines: list[OcrLine],
+    box: Redaction,
+) -> RedactionAnalysis | None:
+    """Run analysis on a single known redaction bounding box.
+
+    Uses cached OCR data to:
+    1. Find the OCR line containing the redaction
+    2. Detect the font (with redaction masking)
+    3. Extract left/right context text
+    4. Compute pixel alignment offsets
+
+    Args:
+        page_image: PIL Image of the document page.
+        ocr_lines: Pre-computed OCR lines for the page.
+        box: Known redaction bounding box.
+
+    Returns:
+        RedactionAnalysis or None if no suitable OCR line found.
+    """
+    # Find the OCR line that best contains this redaction box.
+    # Use vertical overlap: the line whose vertical range overlaps most with the box.
+    best_line = None
+    best_overlap = 0
+    box_top = box.y
+    box_bottom = box.y + box.h
+
+    for line in ocr_lines:
+        line_top = line.y
+        line_bottom = line.y + line.h
+        overlap = max(0, min(box_bottom, line_bottom) - max(box_top, line_top))
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_line = line
+
+    if best_line is None:
+        return None
+
+    line = best_line
+    redaction_boxes = [(box.x, box.y, box.w, box.h)]
+
+    # Font detection with masking
+    font = detect_font_masked(line, page_image, redaction_boxes)
+
+    # Extract left/right text using center-point char filtering
+    left_chars = [c for c in line.chars if c.x + c.w / 2 < box.x]
+    right_chars = [c for c in line.chars if c.x + c.w / 2 > box.x + box.w]
+    left_text = "".join(c.text for c in left_chars).strip()
+    right_text = "".join(c.text for c in right_chars).strip()
+
+    # Pixel alignment
+    offset_x = 0.0
+    offset_y = 0.0
+
+    if left_text:
+        pil_font = font.to_pil_font()
+        text_region_x1 = max(0, line.x - 20)
+        text_region_x2 = min(page_image.width, box.x + 20)
+        text_region_y1 = max(0, line.y - 10)
+        text_region_y2 = min(page_image.height, line.y + line.h + 10)
+        text_crop = np.array(page_image.convert("L").crop(
+            (text_region_x1, text_region_y1, text_region_x2, text_region_y2)
+        ))
+        align_dx, align_dy = align_text_to_page(
+            left_text, pil_font, text_crop,
+        )
+        offset_x = float(text_region_x1 + align_dx - line.x)
+        offset_y = float(text_region_y1 + align_dy - line.y)
+
+    return RedactionAnalysis(
+        box=box,
+        line=line,
+        font=font,
+        left_text=left_text,
+        right_text=right_text,
+        offset_x=offset_x,
+        offset_y=offset_y,
+    )

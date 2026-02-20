@@ -12,3 +12,11 @@ def sample_pdf() -> Path:
     if not pdf.exists():
         pytest.skip("Sample PDF not available")
     return pdf
+
+
+@pytest.fixture
+def sample_page_image(sample_pdf):
+    """Rasterize the first page of the sample PDF as a PIL Image."""
+    from unredact.pipeline.rasterize import rasterize_pdf
+    pages = rasterize_pdf(sample_pdf)
+    return pages[0]

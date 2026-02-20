@@ -15,6 +15,7 @@ from unredact.pipeline.analyze_page import (
     RedactionAnalysis,
     PageAnalysis,
     analyze_page,
+    analyze_spot_redaction,
 )
 
 
@@ -348,3 +349,130 @@ async def test_analyze_page_uses_precomputed_ocr_lines():
     m_ocr.assert_not_called()
     # The returned lines must be the exact same object (not a copy)
     assert result.lines is precomputed_lines
+
+
+# ---------------------------------------------------------------------------
+# test_analyze_spot_redaction
+# ---------------------------------------------------------------------------
+
+def test_analyze_spot_redaction_returns_analysis():
+    """analyze_spot_redaction should return a RedactionAnalysis for a box
+    that overlaps an OCR line, with correct font, text, and offsets."""
+    line = _make_line_from_words(["Hello", "|||", "world"], y=100, h=20)
+    lines = [line]
+
+    box = Redaction(
+        id="spot1",
+        x=100,
+        y=98,
+        w=30,
+        h=22,
+    )
+
+    font_match = _dummy_font_match()
+    page_image = _dummy_page_image()
+
+    with (
+        patch(
+            "unredact.pipeline.analyze_page.detect_font_masked",
+            return_value=font_match,
+        ),
+        patch(
+            "unredact.pipeline.analyze_page.align_text_to_page",
+            return_value=(3, -1),
+        ),
+    ):
+        result = analyze_spot_redaction(page_image, lines, box)
+
+    assert result is not None
+    assert isinstance(result, RedactionAnalysis)
+    assert result.box is box
+    assert result.line is line
+    assert result.font is font_match
+    assert "Hello" in result.left_text
+    assert "world" in result.right_text
+    assert isinstance(result.offset_x, float)
+    assert isinstance(result.offset_y, float)
+
+
+def test_analyze_spot_redaction_no_matching_line():
+    """analyze_spot_redaction should return None if no OCR line overlaps."""
+    # Line at y=100, box at y=500 — no overlap
+    line = _make_line_from_words(["Hello", "world"], y=100, h=20)
+    lines = [line]
+
+    box = Redaction(id="spot2", x=50, y=500, w=100, h=20)
+    page_image = _dummy_page_image()
+
+    result = analyze_spot_redaction(page_image, lines, box)
+    assert result is None
+
+
+def test_analyze_spot_redaction_empty_lines():
+    """analyze_spot_redaction should return None for empty OCR lines list."""
+    box = Redaction(id="spot3", x=50, y=100, w=100, h=20)
+    page_image = _dummy_page_image()
+
+    result = analyze_spot_redaction(page_image, [], box)
+    assert result is None
+
+
+def test_analyze_spot_redaction_no_left_text_skips_alignment():
+    """When the box covers the start of the line (no left text),
+    alignment should be skipped and offsets should be 0.0."""
+    # Box starts at x=50 (same as line start), so no chars to the left
+    line = _make_line_from_words(["|||", "world"], start_x=50, y=100, h=20)
+    lines = [line]
+
+    box = Redaction(id="spot4", x=50, y=98, w=30, h=22)
+
+    font_match = _dummy_font_match()
+    page_image = _dummy_page_image()
+
+    with patch(
+        "unredact.pipeline.analyze_page.detect_font_masked",
+        return_value=font_match,
+    ):
+        result = analyze_spot_redaction(page_image, lines, box)
+
+    assert result is not None
+    assert result.left_text == ""
+    assert result.offset_x == 0.0
+    assert result.offset_y == 0.0
+
+
+def test_analyze_spot_redaction_integration(sample_page_image):
+    """analyze_spot_redaction should return full analysis for a known bbox."""
+    from unredact.pipeline.ocr import ocr_page
+
+    # Get real OCR data
+    lines = ocr_page(sample_page_image)
+    if not lines:
+        pytest.skip("No OCR lines found in sample image")
+
+    # Find a line with enough text to put a box in the middle
+    line = None
+    for l in lines:
+        if l.w > 100 and len(l.chars) > 5:
+            line = l
+            break
+    if line is None:
+        pytest.skip("No suitable OCR line found")
+
+    # Create a synthetic redaction box in the middle of the line
+    box = Redaction(
+        id="test123",
+        x=line.x + line.w // 3,
+        y=line.y,
+        w=line.w // 3,
+        h=line.h,
+    )
+
+    result = analyze_spot_redaction(sample_page_image, lines, box)
+    assert result is not None
+    assert result.box is box
+    assert result.line is line
+    assert result.font is not None
+    assert result.font.font_size > 0
+    assert isinstance(result.offset_x, float)
+    assert isinstance(result.offset_y, float)
