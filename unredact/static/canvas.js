@@ -102,8 +102,8 @@ export function renderCanvas() {
   for (const r of redactions) {
     const isActive = r.id === state.activeRedaction;
 
-    if (r.status === "solved" && r.solution) {
-      drawRedactionSolution(r, isActive);
+    if (r.status === "approved" && r.approvedText) {
+      drawRedactionApproved(r, isActive);
     } else if (r.preview) {
       drawRedactionPreview(r, isActive);
     } else if (r.status === "analyzed" && r.analysis) {
@@ -257,63 +257,24 @@ function drawRedactionPreview(r, isActive) {
  * @param {import('./types.js').Redaction} r
  * @param {boolean} isActive
  */
-function drawRedactionSolution(r, isActive) {
-  if (!r.analysis) return;
+function drawRedactionApproved(r, isActive) {
+  if (!r.analysis || !r.approvedText) return;
   const a = r.analysis;
   const o = r.overrides || {};
   const fontName = state.fonts.find(f => f.id === (o.fontId ?? a.font.id))?.name ?? a.font.name;
   const fontSize = o.fontSize ?? a.font.size;
-  const fontStr = `${fontSize}px "${fontName}"`;
-  const gapW = o.gapWidth ?? a.gap.w;
+
+  const startX = a.line.x + (o.offsetX ?? 0);
+  const startY = a.line.y + (o.offsetY ?? 0);
+
+  ctx.textBaseline = "top";
+  ctx.font = `${fontSize}px "${fontName}"`;
+  ctx.fillStyle = "rgba(30, 100, 255, 0.9)";
+  ctx.fillText(r.approvedText, startX, startY);
 
   if (isActive) {
-    const startX = a.line.x + (o.offsetX ?? 0);
-    const startY = a.line.y + (o.offsetY ?? 0);
-
-    ctx.textBaseline = "top";
-
-    let cursorX = startX;
-
-    const leftText = o.leftText ?? "";
-    if (leftText) {
-      cursorX += drawStyledText(leftText, cursorX, startY, fontName, fontSize, "rgba(0, 200, 0, 0.7)");
-    }
-
-    const pad = fontSize * 0.15;
-    ctx.fillStyle = "rgba(0, 212, 116, 0.15)";
-    ctx.fillRect(cursorX, startY - pad, gapW, fontSize + pad * 2);
-    ctx.strokeStyle = "rgba(0, 212, 116, 0.8)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(cursorX, startY - pad, gapW, fontSize + pad * 2);
-
-    ctx.fillStyle = "rgba(0, 212, 116, 0.95)";
-    ctx.font = fontStr;
-    ctx.fillText(r.solution.text, cursorX, startY);
-
-    cursorX += gapW;
-
-    const rightText = o.rightText ?? "";
-    if (rightText) {
-      drawStyledText(rightText, cursorX, startY, fontName, fontSize, "rgba(0, 200, 0, 0.7)");
-    }
-
-    ctx.strokeStyle = "rgba(0, 200, 0, 0.3)";
+    ctx.strokeStyle = "rgba(30, 100, 255, 0.3)";
     ctx.lineWidth = 1;
     ctx.strokeRect(a.line.x, a.line.y, a.line.w, a.line.h);
-  } else {
-    const gapX = a.gap.x + (o.offsetX ?? 0);
-    const textY = a.line.y + (o.offsetY ?? 0);
-    const pad = fontSize * 0.1;
-    ctx.fillStyle = "rgba(0, 212, 116, 0.08)";
-    ctx.fillRect(gapX, textY - pad, gapW, fontSize + pad * 2);
-
-    ctx.strokeStyle = "rgba(0, 212, 116, 0.4)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(gapX, textY - pad, gapW, fontSize + pad * 2);
-
-    ctx.font = fontStr;
-    ctx.textBaseline = "top";
-    ctx.fillStyle = "rgba(0, 212, 116, 0.95)";
-    ctx.fillText(r.solution.text, gapX, textY);
   }
 }
