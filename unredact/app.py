@@ -19,7 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 from unredact.pipeline.ocr import ocr_page
 from unredact.pipeline.rasterize import rasterize_pdf
 from unredact.pipeline.font_detect import CANDIDATE_FONTS, _find_font_path
-from unredact.pipeline.analyze_page import analyze_page
+from unredact.pipeline.analyze_page import analyze_page, analyze_spot_redaction
 from unredact.pipeline.detect_redactions import spot_redaction
 from unredact.pipeline.solver import build_constraint, SolveResult
 from unredact.pipeline.dictionary import solve_dictionary, solve_full_name_dictionary, solve_name_dictionary
@@ -510,11 +510,53 @@ async def spot(doc_id: str, page: int, data: dict):
         return JSONResponse({"error": "not found"}, status_code=404)
     click_x = int(data["x"])
     click_y = int(data["y"])
-    page_img = doc["pages"][page]["original"]
+    pd = doc["pages"][page]
+    page_img = pd["original"]
     result = spot_redaction(page_img, click_x, click_y)
     if result is None:
         return JSONResponse({"error": "no redaction found"}, status_code=404)
-    return {"id": result.id, "x": result.x, "y": result.y, "w": result.w, "h": result.h}
+
+    # Run analysis if OCR data is available
+    ocr_lines = pd.get("ocr_lines")
+    analysis_json = None
+    if ocr_lines:
+        ra = await asyncio.to_thread(
+            analyze_spot_redaction, page_img, ocr_lines, result,
+        )
+        if ra is not None:
+            font_id = _make_font_id(ra.font.font_name)
+            segments = []
+            if ra.left_text:
+                segments.append({"text": ra.left_text})
+            if ra.right_text:
+                segments.append({"text": ra.right_text})
+
+            analysis_json = {
+                "segments": segments,
+                "gap": {"x": ra.box.x, "w": ra.box.w},
+                "font": {
+                    "name": ra.font.font_name,
+                    "id": font_id,
+                    "size": ra.font.font_size,
+                    "score": ra.font.score,
+                },
+                "line": {
+                    "x": ra.line.x,
+                    "y": ra.line.y,
+                    "w": ra.line.w,
+                    "h": ra.line.h,
+                    "text": ra.line.text,
+                },
+                "offset_x": ra.offset_x,
+                "offset_y": ra.offset_y,
+            }
+
+    return {
+        "id": result.id,
+        "x": result.x, "y": result.y,
+        "w": result.w, "h": result.h,
+        "analysis": analysis_json,
+    }
 
 
 # Static files mount MUST be after all route definitions

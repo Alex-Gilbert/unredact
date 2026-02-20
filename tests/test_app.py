@@ -226,3 +226,38 @@ async def test_get_associates():
         assert "persons" in data
         assert isinstance(data["names"], dict)
         assert isinstance(data["persons"], dict)
+
+
+@pytest.mark.anyio
+async def test_spot_returns_analysis(pdf_bytes: bytes):
+    """POST /spot should return analysis data when OCR is cached."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/upload",
+            files={"file": ("test.pdf", pdf_bytes, "application/pdf")},
+        )
+        doc_id = resp.json()["doc_id"]
+
+        # Run OCR first (required for spot analysis)
+        resp = await client.get(f"/api/doc/{doc_id}/ocr")
+        assert resp.status_code == 200
+
+        # Try to spot a redaction at an arbitrary position
+        resp = await client.post(
+            f"/api/doc/{doc_id}/page/1/spot",
+            json={"x": 300, "y": 300},
+        )
+        if resp.status_code == 404:
+            pytest.skip("No redaction found at test coordinates")
+
+        data = resp.json()
+        assert "id" in data
+        assert "x" in data
+        assert "analysis" in data
+        # analysis should be present (or null if no OCR line matched)
+        if data["analysis"] is not None:
+            assert "font" in data["analysis"]
+            assert "segments" in data["analysis"]
+            assert "gap" in data["analysis"]
+            assert "line" in data["analysis"]
