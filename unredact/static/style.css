@@ -684,12 +684,25 @@ main {
 
 .redaction-marker {
   flex-shrink: 0;
+  min-width: 3rem;
+  max-width: 12rem;
   padding: 0.25rem 0.4rem;
   background: var(--red);
   color: #fff;
   font-size: 0.65rem;
   font-weight: 700;
+  border: none;
   border-radius: 3px;
+  text-align: center;
+}
+
+.redaction-marker::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.redaction-marker:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .redaction-marker.preview {

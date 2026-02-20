@@ -44,8 +44,6 @@ export function openPopover(id) {
     r.preview = r.solution.text;
     r.status = "analyzed";
     solveAccept.hidden = true;
-    redactionMarker.textContent = r.solution.text;
-    redactionMarker.className = "redaction-marker preview";
   } else {
     solveAccept.hidden = r.preview === null;
   }
@@ -62,7 +60,7 @@ export function openPopover(id) {
   textEditBar.hidden = false;
   leftTextInput.value = r.overrides.leftText;
   rightTextInput.value = r.overrides.rightText;
-  redactionMarker.textContent = r.preview || "???";
+  redactionMarker.value = r.preview || "";
   redactionMarker.className = r.preview ? "redaction-marker preview" : "redaction-marker";
 }
 
@@ -170,6 +168,16 @@ export function initPopover() {
     rightTextInput.value = r.overrides.rightText;
     renderCanvas();
 
+  });
+
+  redactionMarker.addEventListener("input", () => {
+    const r = state.redactions[state.activeRedaction];
+    if (!r) return;
+    const guess = redactionMarker.value.trim();
+    r.preview = guess || null;
+    redactionMarker.className = guess ? "redaction-marker preview" : "redaction-marker";
+    solveAccept.hidden = !guess;
+    renderCanvas();
   });
 
   solveTolerance.addEventListener("input", () => {

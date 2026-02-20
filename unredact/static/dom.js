@@ -52,7 +52,7 @@ export const gapValue = document.getElementById("gap-value");
 export const textEditBar = document.getElementById("text-edit-bar");
 export const leftTextInput = /** @type {HTMLInputElement} */ (document.getElementById("left-text-input"));
 export const rightTextInput = /** @type {HTMLInputElement} */ (document.getElementById("right-text-input"));
-export const redactionMarker = document.getElementById("redaction-marker");
+export const redactionMarker = /** @type {HTMLInputElement} */ (document.getElementById("redaction-marker"));
 export const textReset = document.getElementById("text-reset");
 export const toastContainer = document.getElementById("toast-container");
 
