@@ -39,7 +39,16 @@ export function openPopover(id) {
   solveStatus.textContent = "";
   solveStart.hidden = false;
   solveStop.hidden = true;
-  solveAccept.hidden = !!(r.preview === null);
+  // For approved redactions, restore the solution as preview for re-editing
+  if (r.status === "approved" && r.solution) {
+    r.preview = r.solution.text;
+    r.status = "analyzed";
+    solveAccept.hidden = true;
+    redactionMarker.textContent = r.solution.text;
+    redactionMarker.className = "redaction-marker preview";
+  } else {
+    solveAccept.hidden = r.preview === null;
+  }
 
   popoverEl.hidden = false;
 
