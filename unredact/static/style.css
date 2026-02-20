@@ -147,6 +147,25 @@ main {
   padding: 0.5rem 0;
 }
 
+#detect-btn {
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+#detect-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+#detect-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Redaction list items */
 .redaction-item {
   padding: 0.5rem 0.75rem;

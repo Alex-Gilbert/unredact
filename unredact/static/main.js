@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import {
   dropZone, fileInput, uploadSection, viewerSection, docImage,
-  canvas, pageInfo, prevBtn, nextBtn, redactionListEl,
+  canvas, pageInfo, prevBtn, nextBtn, redactionListEl, detectBtn,
   rightPanel, fontSelect,
   solveAccept, gapValue, showToast,
 } from './dom.js';
@@ -96,8 +96,8 @@ async function uploadFile(file) {
   // Load the first page image and controls immediately
   await loadPage(1);
 
-  // Start background analysis via SSE
-  startAnalysisSSE();
+  // Start background OCR via SSE
+  startOcrSSE();
 }
 
 /**
@@ -120,12 +120,51 @@ function startAnalysisSSE() {
     } else if (data.event === "done") {
       es.close();
       showToast("Analysis complete");
+      if (detectBtn) {
+        detectBtn.disabled = false;
+        detectBtn.textContent = "Detect Redactions";
+      }
     }
   });
 
   es.addEventListener("error", () => {
     es.close();
     showToast("Analysis connection lost", "error");
+    if (detectBtn) {
+      detectBtn.disabled = false;
+      detectBtn.textContent = "Detect Redactions";
+    }
+  });
+}
+
+function startOcrSSE() {
+  const es = new EventSource(`/api/doc/${state.docId}/ocr`);
+  showToast("Running OCR...", "info");
+
+  es.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.event === "page_ocr_complete") {
+      // OCR cached for this page on the backend
+    } else if (data.event === "ocr_complete") {
+      es.close();
+      state.ocrReady = true;
+      showToast("OCR complete — ready to detect redactions", "success");
+      if (detectBtn) detectBtn.disabled = false;
+    } else if (data.event === "error") {
+      showToast(`OCR error on page ${data.page}: ${data.message}`, "error");
+    }
+  };
+  es.onerror = () => {
+    es.close();
+    showToast("OCR connection lost", "error");
+  };
+}
+
+if (detectBtn) {
+  detectBtn.addEventListener("click", () => {
+    detectBtn.disabled = true;
+    detectBtn.textContent = "Detecting...";
+    startAnalysisSSE();
   });
 }
 

@@ -12,6 +12,7 @@ export const pageInfo = document.getElementById("page-info");
 export const prevBtn = /** @type {HTMLButtonElement} */ (document.getElementById("prev-page"));
 export const nextBtn = /** @type {HTMLButtonElement} */ (document.getElementById("next-page"));
 export const redactionListEl = document.getElementById("redaction-list");
+export const detectBtn = /** @type {HTMLButtonElement} */ (document.getElementById("detect-btn"));
 export const zoomInBtn = document.getElementById("zoom-in");
 export const zoomOutBtn = document.getElementById("zoom-out");
 export const zoomFitBtn = document.getElementById("zoom-fit");
