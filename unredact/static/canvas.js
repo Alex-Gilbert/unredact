@@ -264,13 +264,6 @@ function drawRedactionApproved(r, isActive) {
   const fontName = state.fonts.find(f => f.id === (o.fontId ?? a.font.id))?.name ?? a.font.name;
   const fontSize = o.fontSize ?? a.font.size;
 
-  // Always draw a box overlay on the redaction area so it stays visible
-  ctx.fillStyle = isActive ? "rgba(30, 100, 255, 0.25)" : "rgba(30, 100, 255, 0.12)";
-  ctx.fillRect(r.x, r.y, r.w, r.h);
-  ctx.strokeStyle = isActive ? "rgba(30, 100, 255, 0.8)" : "rgba(30, 100, 255, 0.4)";
-  ctx.lineWidth = isActive ? 2 : 1;
-  ctx.strokeRect(r.x, r.y, r.w, r.h);
-
   // Draw the full merged text along the line
   const startX = a.line.x + (o.offsetX ?? 0);
   const startY = a.line.y + (o.offsetY ?? 0);
