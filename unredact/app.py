@@ -93,6 +93,7 @@ async def upload_pdf(file: UploadFile):
         page_data[i] = {
             "original": page_img,
             "analysis": None,
+            "ocr_lines": None,
         }
 
     _docs[doc_id] = {
