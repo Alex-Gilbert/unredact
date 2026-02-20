@@ -45,6 +45,7 @@ class PageAnalysis:
 async def analyze_page(
     page_image: Image.Image,
     on_progress: callable | None = None,
+    ocr_lines: list[OcrLine] | None = None,
 ) -> PageAnalysis:
     """Run the full per-page analysis pipeline.
 
@@ -61,12 +62,17 @@ async def analyze_page(
         page_image: PIL Image of the document page.
         on_progress: Optional callback ``(event_name, data_dict)`` for
             progress reporting.
+        ocr_lines: Optional pre-computed OCR lines.  When provided the
+            OCR step is skipped and these lines are used directly.
 
     Returns:
         PageAnalysis with OCR lines and redaction analysis results.
     """
-    # Step 1: OCR (blocking — run in thread)
-    lines: list[OcrLine] = await asyncio.to_thread(ocr_page, page_image)
+    # Step 1: OCR (blocking — run in thread), or use pre-computed lines
+    if ocr_lines is not None:
+        lines = ocr_lines
+    else:
+        lines: list[OcrLine] = await asyncio.to_thread(ocr_page, page_image)
 
     if on_progress:
         on_progress("ocr_done", {"line_count": len(lines)})
