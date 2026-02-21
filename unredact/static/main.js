@@ -16,7 +16,8 @@ import { stopSolve, acceptSolution, initSolver } from './solver.js';
 
 // ── Sheet snap management ──
 
-const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
+const mobileQuery = window.matchMedia('(max-width: 768px)');
+const isMobile = () => mobileQuery.matches;
 
 const SNAP_PEEK = 60;
 const SNAP_HALF_RATIO = 0.45;
@@ -37,6 +38,7 @@ function getSnapHeight(snap) {
 
 function setSheetSnap(snap) {
   sheetSnap = snap;
+  if (!isMobile()) return;
   const h = getSnapHeight(snap);
   document.documentElement.style.setProperty('--sheet-height', h + 'px');
   bottomSheet.style.height = h + 'px';
@@ -153,7 +155,7 @@ function handleLayoutChange() {
   }
 }
 
-window.matchMedia('(max-width: 768px)').addEventListener('change', handleLayoutChange);
+mobileQuery.addEventListener('change', handleLayoutChange);
 
 
 // ── Font loading ──
