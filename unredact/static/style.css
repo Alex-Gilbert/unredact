@@ -134,13 +134,67 @@ main {
   overflow: hidden;
 }
 
-/* Left panel — scrollable redaction list */
-#left-panel {
+/* Bottom sheet — sidebar on desktop, bottom overlay on mobile */
+#bottom-sheet {
   width: 280px;
   flex-shrink: 0;
   background: var(--bg-surface);
   border-radius: 8px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sheet handle — hidden on desktop, shown on mobile */
+#sheet-handle {
+  display: none;
+  flex-shrink: 0;
+  padding: 8px 0;
+  cursor: grab;
+  touch-action: none;
+}
+#sheet-handle:active { cursor: grabbing; }
+
+.handle-bar {
+  width: 36px;
+  height: 4px;
+  background: var(--text-muted);
+  border-radius: 2px;
+  margin: 0 auto;
+}
+
+/* Sheet tabs — hidden on desktop, shown on mobile */
+#sheet-tabs {
+  display: none;
+  flex-shrink: 0;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 8px;
+}
+
+/* Tab panes: only list visible on desktop */
+#sheet-content {
+  flex: 1;
+  overflow-y: auto;
+}
+.tab-pane { display: none; }
+#tab-list { display: block; }
+
+.sheet-tab {
+  flex: 1;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.sheet-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 #redaction-list {
@@ -772,131 +826,3 @@ main {
   to { opacity: 0; }
 }
 
-/* ── Mobile responsive (≤768px) ── */
-
-.mobile-tabs {
-  display: none;
-}
-
-@media (max-width: 768px) {
-  /* Header: compact */
-  header {
-    padding: 0.5rem 1rem;
-  }
-  header h1 {
-    font-size: 1.1rem;
-  }
-  .subtitle {
-    font-size: 0.7rem;
-  }
-
-  /* Main: tighter padding */
-  main {
-    padding: 0.5rem;
-  }
-
-  /* Controls bar: wrap on narrow screens */
-  #controls {
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    padding: 0.4rem 0.6rem;
-  }
-
-  /* Tab bar: visible */
-  .mobile-tabs {
-    display: flex;
-    gap: 0;
-    flex-shrink: 0;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-surface);
-    border-radius: 8px 8px 0 0;
-  }
-  .mobile-tab {
-    flex: 1;
-    padding: 0.6rem 0;
-    background: none;
-    border: none;
-    color: var(--text-dim);
-    font-size: 0.85rem;
-    font-weight: 600;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: color 0.15s, border-color 0.15s;
-  }
-  .mobile-tab.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-  }
-
-  /* Workspace: stack vertically */
-  #workspace {
-    flex-direction: column;
-  }
-
-  /* Left panel: hidden by default, full-width when active */
-  #left-panel {
-    display: none;
-    width: 100%;
-    border-radius: 0 0 8px 8px;
-  }
-  #left-panel.mobile-active {
-    display: block;
-  }
-
-  /* Right panel: hidden by default, full-size when active */
-  #right-panel {
-    display: none;
-    border-radius: 0 0 8px 8px;
-  }
-  #right-panel.mobile-active {
-    display: block;
-    flex: 1;
-  }
-
-  /* Popover: full-screen modal */
-  #popover {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    border-radius: 0;
-    z-index: 50;
-    background: rgba(20, 20, 40, 0.98);
-    backdrop-filter: none;
-  }
-
-  /* Font toolbar: full-width, no right offset */
-  #font-toolbar {
-    right: 0.5rem;
-    font-size: 0.7rem;
-    gap: 0.4rem;
-  }
-
-  /* Touch targets: larger buttons */
-  .tb-btn {
-    width: 2.2rem;
-    height: 2.2rem;
-    font-size: 0.85rem;
-  }
-
-  /* Solve controls: slightly larger inputs for touch */
-  .solve-controls select,
-  .solve-controls input {
-    padding: 4px 6px;
-    font-size: 0.85rem;
-  }
-  .solve-btn {
-    padding: 8px 20px;
-  }
-
-  /* Popover close button: larger touch target */
-  .popover-close-btn {
-    width: 2.2rem;
-    height: 2.2rem;
-    font-size: 0.9rem;
-  }
-
-  /* Delete button: always visible on touch (no hover) */
-  .redaction-delete {
-    opacity: 1;
-  }
-}
