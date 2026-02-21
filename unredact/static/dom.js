@@ -54,8 +54,12 @@ export const leftTextInput = /** @type {HTMLInputElement} */ (document.getElemen
 export const rightTextInput = /** @type {HTMLInputElement} */ (document.getElementById("right-text-input"));
 export const redactionMarker = /** @type {HTMLInputElement} */ (document.getElementById("redaction-marker"));
 export const textReset = document.getElementById("text-reset");
-export const mobileTabs = document.getElementById("mobile-tabs");
-export const leftPanel = document.getElementById("left-panel");
+export const bottomSheet = document.getElementById("bottom-sheet");
+export const sheetHandle = document.getElementById("sheet-handle");
+export const sheetTabs = document.getElementById("sheet-tabs");
+export const tabSolve = document.getElementById("tab-solve");
+export const tabEdit = document.getElementById("tab-edit");
+export const tabList = document.getElementById("tab-list");
 export const toastContainer = document.getElementById("toast-container");
 
 /**
