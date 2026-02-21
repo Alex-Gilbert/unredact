@@ -483,6 +483,10 @@ function activateRedaction(id) {
 
   if (r.status === "analyzed" || r.status === "approved") {
     openPopover(id);
+    if (isMobile()) {
+      switchSheetTab('solve');
+      setSheetSnap('half');
+    }
   }
 }
 
@@ -751,7 +755,13 @@ document.addEventListener("keydown", (e) => {
 
 // ── Initialize all modules ──
 
-setOnPopoverClose(stopSolve);
+setOnPopoverClose(() => {
+  stopSolve();
+  if (isMobile()) {
+    switchSheetTab('list');
+    setSheetSnap('peek');
+  }
+});
 initViewport();
 initPopover();
 initSolver();
