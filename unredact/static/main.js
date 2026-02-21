@@ -514,6 +514,11 @@ canvas.addEventListener("mousedown", (e) => {
   if (hit) {
     e.stopPropagation();
     activateRedaction(hit.id);
+  } else if (isMobile() && state.activeRedaction) {
+    state.activeRedaction = null;
+    closePopover();
+    renderRedactionList();
+    renderCanvas();
   }
 });
 

@@ -956,6 +956,11 @@ main {
   /* Delete button: always visible on touch (no hover) */
   .redaction-delete { opacity: 1; }
 
+  /* Toast: position above sheet */
+  #toast-container {
+    bottom: calc(var(--sheet-height, 60px) + 1rem);
+  }
+
   /* Viewer section needs bottom margin for sheet peek height */
   #viewer-section {
     padding-bottom: var(--sheet-height, 60px);
