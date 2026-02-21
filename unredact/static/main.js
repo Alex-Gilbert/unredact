@@ -16,6 +16,8 @@ import { stopSolve, acceptSolution, initSolver } from './solver.js';
 
 // ── Sheet snap management ──
 
+const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
+
 const SNAP_PEEK = 60;
 const SNAP_HALF_RATIO = 0.45;
 const SNAP_FULL_RATIO = 0.9;
@@ -91,6 +93,67 @@ function initSheetDrag() {
   handle.addEventListener('touchend', endDrag);
   handle.addEventListener('touchcancel', endDrag);
 }
+
+// ── Mobile layout: move controls into sheet tabs ──
+
+let elementsInSheet = false;
+
+function moveElementsToSheet() {
+  if (elementsInSheet) return;
+  const popover = document.getElementById('popover');
+  const fontToolbar = document.getElementById('font-toolbar');
+  const textEditBar = document.getElementById('text-edit-bar');
+
+  tabSolve.appendChild(popover);
+  tabEdit.appendChild(fontToolbar);
+  tabEdit.appendChild(textEditBar);
+  elementsInSheet = true;
+}
+
+function moveElementsToPanel() {
+  if (!elementsInSheet) return;
+  const popover = document.getElementById('popover');
+  const fontToolbar = document.getElementById('font-toolbar');
+  const textEditBar = document.getElementById('text-edit-bar');
+
+  rightPanel.insertBefore(fontToolbar, rightPanel.querySelector('#doc-container'));
+  rightPanel.insertBefore(popover, rightPanel.querySelector('#doc-container'));
+  rightPanel.appendChild(textEditBar);
+  elementsInSheet = false;
+}
+
+// ── Sheet tab switching ──
+
+function switchSheetTab(tab) {
+  sheetTabs.querySelectorAll('.sheet-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('#sheet-content .tab-pane').forEach(pane => {
+    pane.classList.toggle('active', pane.id === 'tab-' + tab);
+  });
+}
+
+function initSheetTabs() {
+  sheetTabs.addEventListener('click', (e) => {
+    const btn = /** @type {HTMLElement} */ (e.target).closest('.sheet-tab');
+    if (btn?.dataset.tab) switchSheetTab(btn.dataset.tab);
+  });
+}
+
+// ── Responsive layout management ──
+
+function handleLayoutChange() {
+  if (isMobile()) {
+    moveElementsToSheet();
+    setSheetSnap(sheetSnap);
+  } else {
+    moveElementsToPanel();
+    document.documentElement.style.removeProperty('--sheet-height');
+    bottomSheet.style.height = '';
+  }
+}
+
+window.matchMedia('(max-width: 768px)').addEventListener('change', handleLayoutChange);
 
 
 // ── Font loading ──
@@ -693,10 +756,7 @@ initViewport();
 initPopover();
 initSolver();
 
-// ── Initialize sheet (mobile only) ──
-const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
-
-if (isMobile()) {
-  setSheetSnap('peek');
-  initSheetDrag();
-}
+// ── Initialize sheet and tabs ──
+initSheetTabs();
+initSheetDrag();
+handleLayoutChange();
