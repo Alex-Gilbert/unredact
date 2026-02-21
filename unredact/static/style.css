@@ -275,6 +275,7 @@ main {
   border-radius: 8px;
   cursor: grab;
   position: relative;
+  touch-action: none;
 }
 
 #right-panel.panning {
@@ -892,5 +893,10 @@ main {
     width: 2.2rem;
     height: 2.2rem;
     font-size: 0.9rem;
+  }
+
+  /* Delete button: always visible on touch (no hover) */
+  .redaction-delete {
+    opacity: 1;
   }
 }
