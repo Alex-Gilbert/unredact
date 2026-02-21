@@ -5,7 +5,7 @@ import { state } from './state.js';
 import {
   dropZone, fileInput, uploadSection, viewerSection, docImage,
   canvas, pageInfo, prevBtn, nextBtn, redactionListEl, detectBtn,
-  rightPanel, leftPanel, mobileTabs, fontSelect,
+  rightPanel, bottomSheet, sheetTabs, tabSolve, tabEdit, tabList, fontSelect,
   solveAccept, gapValue, showToast,
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
@@ -244,7 +244,7 @@ nextBtn.addEventListener("click", () => {
   if (state.currentPage < state.pageCount) loadPage(state.currentPage + 1);
 });
 
-// ── Redaction list (left panel) ──
+// ── Redaction list ──
 
 function renderRedactionList() {
   const redactions = Object.values(state.redactions)
@@ -342,8 +342,6 @@ function activateRedaction(id) {
   if (r.status === "analyzed" || r.status === "approved") {
     openPopover(id);
   }
-
-  switchTab("document");
 }
 
 function deleteRedaction(id) {
@@ -354,27 +352,6 @@ function deleteRedaction(id) {
   delete state.redactions[id];
   renderRedactionList();
   renderCanvas();
-}
-
-// ── Mobile tab switching ──
-
-function switchTab(tab) {
-  if (!mobileTabs) return;
-  mobileTabs.querySelectorAll(".mobile-tab").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.tab === tab);
-  });
-  leftPanel.classList.toggle("mobile-active", tab === "redactions");
-  rightPanel.classList.toggle("mobile-active", tab === "document");
-}
-
-function initMobileTabs() {
-  if (!mobileTabs) return;
-  mobileTabs.addEventListener("click", (e) => {
-    const btn = /** @type {HTMLElement} */ (e.target).closest(".mobile-tab");
-    if (btn?.dataset.tab) switchTab(btn.dataset.tab);
-  });
-  // Default: Document tab active
-  switchTab("document");
 }
 
 // ── Canvas hit-testing ──
@@ -636,4 +613,3 @@ setOnPopoverClose(stopSolve);
 initViewport();
 initPopover();
 initSolver();
-initMobileTabs();
