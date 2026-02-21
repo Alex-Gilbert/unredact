@@ -826,3 +826,139 @@ main {
   to { opacity: 0; }
 }
 
+/* ── Mobile (≤768px) ── */
+
+@media (max-width: 768px) {
+  /* Header: compact */
+  header { padding: 0.5rem 1rem; }
+  header h1 { font-size: 1.1rem; }
+  .subtitle { font-size: 0.7rem; }
+
+  /* Main: tighter padding */
+  main { padding: 0.5rem; }
+
+  /* Controls bar: wrap on narrow screens */
+  #controls {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+  }
+
+  /* Workspace: full column layout */
+  #workspace {
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* Right panel: always visible, takes available space above sheet */
+  #right-panel {
+    flex: 1;
+    min-height: 0;
+    border-radius: 0;
+  }
+
+  /* Bottom sheet: fixed overlay at bottom */
+  #bottom-sheet {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: var(--sheet-height, 60px);
+    z-index: 40;
+    border-radius: 12px 12px 0 0;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    transition: height 0.25s ease-out;
+    overflow: hidden;
+  }
+
+  /* Handle and tabs: visible on mobile */
+  #sheet-handle { display: block; }
+  #sheet-tabs { display: flex; }
+
+  /* Sheet content: fill remaining space, scroll */
+  #sheet-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 8px 8px;
+  }
+
+  /* All tab panes hidden by default; .active shown */
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* ── Elements moved into sheet tabs on mobile ── */
+
+  /* Popover: static flow inside solve tab (no close button needed) */
+  #popover:not([hidden]) {
+    position: static;
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    backdrop-filter: none;
+    z-index: auto;
+    overflow-y: visible;
+  }
+  .popover-header { display: none; }
+
+  /* Font toolbar: static flow inside edit tab */
+  #font-toolbar:not([hidden]) {
+    position: static;
+    width: 100%;
+    right: auto;
+    left: auto;
+    top: auto;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    backdrop-filter: none;
+    z-index: auto;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    padding: 8px 0;
+  }
+
+  /* Text edit bar: static flow inside edit tab */
+  #text-edit-bar:not([hidden]) {
+    position: static;
+    width: 100%;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    border-radius: 0;
+    border: none;
+    border-top: 1px solid var(--border);
+    background: transparent;
+    backdrop-filter: none;
+    z-index: auto;
+    padding: 8px 0;
+    margin-top: 8px;
+  }
+
+  /* Touch targets: larger buttons */
+  .tb-btn {
+    width: 2.2rem;
+    height: 2.2rem;
+    font-size: 0.85rem;
+  }
+
+  /* Solve controls: larger inputs for touch */
+  .solve-controls select,
+  .solve-controls input {
+    padding: 4px 6px;
+    font-size: 0.85rem;
+  }
+  .solve-btn { padding: 8px 20px; }
+
+  /* Delete button: always visible on touch (no hover) */
+  .redaction-delete { opacity: 1; }
+
+  /* Viewer section needs bottom margin for sheet peek height */
+  #viewer-section {
+    padding-bottom: var(--sheet-height, 60px);
+  }
+}
+
