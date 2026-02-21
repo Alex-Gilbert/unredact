@@ -14,6 +14,85 @@ import { openPopover, closePopover, setOnPopoverClose, updatePosDisplay, initPop
 import { stopSolve, acceptSolution, initSolver } from './solver.js';
 
 
+// ── Sheet snap management ──
+
+const SNAP_PEEK = 60;
+const SNAP_HALF_RATIO = 0.45;
+const SNAP_FULL_RATIO = 0.9;
+
+/** @type {'peek'|'half'|'full'} */
+let sheetSnap = 'peek';
+
+function getSnapHeight(snap) {
+  const vh = window.innerHeight;
+  switch (snap) {
+    case 'peek': return SNAP_PEEK;
+    case 'half': return Math.round(vh * SNAP_HALF_RATIO);
+    case 'full': return Math.round(vh * SNAP_FULL_RATIO);
+    default: return SNAP_PEEK;
+  }
+}
+
+function setSheetSnap(snap) {
+  sheetSnap = snap;
+  const h = getSnapHeight(snap);
+  document.documentElement.style.setProperty('--sheet-height', h + 'px');
+  bottomSheet.style.height = h + 'px';
+}
+
+function initSheetDrag() {
+  const handle = document.getElementById('sheet-handle');
+  if (!handle) return;
+
+  let dragState = null;
+
+  handle.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    dragState = {
+      startY: e.touches[0].clientY,
+      startHeight: bottomSheet.offsetHeight,
+    };
+    bottomSheet.style.transition = 'none';
+  }, { passive: true });
+
+  handle.addEventListener('touchmove', (e) => {
+    if (!dragState) return;
+    e.preventDefault();
+    const dy = dragState.startY - e.touches[0].clientY;
+    const newH = Math.max(SNAP_PEEK, Math.min(
+      getSnapHeight('full'),
+      dragState.startHeight + dy
+    ));
+    bottomSheet.style.height = newH + 'px';
+    document.documentElement.style.setProperty('--sheet-height', newH + 'px');
+  }, { passive: false });
+
+  const endDrag = () => {
+    if (!dragState) return;
+    bottomSheet.style.transition = '';
+    const currentH = bottomSheet.offsetHeight;
+
+    // Find nearest snap point
+    const peekH = getSnapHeight('peek');
+    const halfH = getSnapHeight('half');
+    const fullH = getSnapHeight('full');
+
+    const peekDist = Math.abs(currentH - peekH);
+    const halfDist = Math.abs(currentH - halfH);
+    const fullDist = Math.abs(currentH - fullH);
+
+    if (peekDist <= halfDist && peekDist <= fullDist) setSheetSnap('peek');
+    else if (halfDist <= fullDist) setSheetSnap('half');
+    else setSheetSnap('full');
+
+    dragState = null;
+  };
+
+  handle.addEventListener('touchend', endDrag);
+  handle.addEventListener('touchcancel', endDrag);
+}
+
+
 // ── Font loading ──
 
 async function loadFonts() {
@@ -613,3 +692,11 @@ setOnPopoverClose(stopSolve);
 initViewport();
 initPopover();
 initSolver();
+
+// ── Initialize sheet (mobile only) ──
+const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
+
+if (isMobile()) {
+  setSheetSnap('peek');
+  initSheetDrag();
+}
