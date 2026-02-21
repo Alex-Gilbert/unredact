@@ -5,7 +5,7 @@ import { state } from './state.js';
 import {
   dropZone, fileInput, uploadSection, viewerSection, docImage,
   canvas, pageInfo, prevBtn, nextBtn, redactionListEl, detectBtn,
-  rightPanel, fontSelect,
+  rightPanel, leftPanel, mobileTabs, fontSelect,
   solveAccept, gapValue, showToast,
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
@@ -273,10 +273,20 @@ function renderRedactionList() {
     infoEl.className = "redaction-info";
     infoEl.textContent = redactionInfoText(r);
 
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "redaction-delete";
+    deleteBtn.textContent = "\u00d7";
+    deleteBtn.title = "Delete redaction";
+    deleteBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteRedaction(r.id);
+    });
+
     const headerRow = document.createElement("div");
     headerRow.className = "redaction-header-row";
     headerRow.appendChild(numEl);
     headerRow.appendChild(statusEl);
+    headerRow.appendChild(deleteBtn);
 
     div.appendChild(headerRow);
     div.appendChild(infoEl);
@@ -332,6 +342,39 @@ function activateRedaction(id) {
   if (r.status === "analyzed" || r.status === "approved") {
     openPopover(id);
   }
+
+  switchTab("document");
+}
+
+function deleteRedaction(id) {
+  if (state.activeRedaction === id) {
+    closePopover();
+    state.activeRedaction = null;
+  }
+  delete state.redactions[id];
+  renderRedactionList();
+  renderCanvas();
+}
+
+// ── Mobile tab switching ──
+
+function switchTab(tab) {
+  if (!mobileTabs) return;
+  mobileTabs.querySelectorAll(".mobile-tab").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  });
+  leftPanel.classList.toggle("mobile-active", tab === "redactions");
+  rightPanel.classList.toggle("mobile-active", tab === "document");
+}
+
+function initMobileTabs() {
+  if (!mobileTabs) return;
+  mobileTabs.addEventListener("click", (e) => {
+    const btn = /** @type {HTMLElement} */ (e.target).closest(".mobile-tab");
+    if (btn?.dataset.tab) switchTab(btn.dataset.tab);
+  });
+  // Default: Document tab active
+  switchTab("document");
 }
 
 // ── Canvas hit-testing ──
@@ -593,3 +636,4 @@ setOnPopoverClose(stopSolve);
 initViewport();
 initPopover();
 initSolver();
+initMobileTabs();
