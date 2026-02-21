@@ -154,19 +154,32 @@ export function initViewport() {
     }
   });
 
-  // Touch: pinch-zoom + two-finger pan
+  // Touch: single-finger pan + two-finger pinch-zoom
   let lastTouches = null;
+  let singleTouch = null;
 
   rightPanel.addEventListener("touchstart", (e) => {
+    if (isPopoverArea(e)) return;
     if (e.touches.length === 2) {
       e.preventDefault();
+      singleTouch = null;
       lastTouches = Array.from(e.touches);
+    } else if (e.touches.length === 1) {
+      singleTouch = {
+        startX: e.touches[0].clientX,
+        startY: e.touches[0].clientY,
+        startPanX: state.panX,
+        startPanY: state.panY,
+        moved: false,
+      };
     }
   }, { passive: false });
 
   rightPanel.addEventListener("touchmove", (e) => {
+    if (isPopoverArea(e)) return;
     if (e.touches.length === 2 && lastTouches) {
       e.preventDefault();
+      singleTouch = null;
       const [t0, t1] = e.touches;
       const [p0, p1] = lastTouches;
 
@@ -188,11 +201,26 @@ export function initViewport() {
       zoomTo(state.zoom * zoomDelta, sx, sy, false);
 
       lastTouches = Array.from(e.touches);
+    } else if (e.touches.length === 1 && singleTouch) {
+      const dx = e.touches[0].clientX - singleTouch.startX;
+      const dy = e.touches[0].clientY - singleTouch.startY;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) singleTouch.moved = true;
+      if (singleTouch.moved) {
+        e.preventDefault();
+        state.panX = singleTouch.startPanX - dx / state.zoom;
+        state.panY = singleTouch.startPanY - dy / state.zoom;
+        applyTransform(false);
+      }
     }
   }, { passive: false });
 
-  rightPanel.addEventListener("touchend", () => {
-    lastTouches = null;
+  rightPanel.addEventListener("touchend", (e) => {
+    if (e.touches.length === 0) {
+      lastTouches = null;
+      singleTouch = null;
+    } else if (e.touches.length === 1) {
+      lastTouches = null;
+    }
   });
 
   // Resize handling
