@@ -54,6 +54,8 @@ export const leftTextInput = /** @type {HTMLInputElement} */ (document.getElemen
 export const rightTextInput = /** @type {HTMLInputElement} */ (document.getElementById("right-text-input"));
 export const redactionMarker = /** @type {HTMLInputElement} */ (document.getElementById("redaction-marker"));
 export const textReset = document.getElementById("text-reset");
+export const mobileTabs = document.getElementById("mobile-tabs");
+export const leftPanel = document.getElementById("left-panel");
 export const toastContainer = document.getElementById("toast-container");
 
 /**
