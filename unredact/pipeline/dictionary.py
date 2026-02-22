@@ -71,6 +71,33 @@ def _apply_casing(text: str, casing: str) -> str:
     return text
 
 
+def _case_unknown_portion(unknown: str, known_start: str, casing: str) -> str:
+    """Apply casing to the unknown portion of a name, respecting word boundaries.
+
+    When known_start is set and casing is 'capitalized', the unknown text
+    starts mid-word — its first fragment should be lowercase, but subsequent
+    words (after spaces) should be title-cased.
+    """
+    if casing == "uppercase":
+        return unknown.upper()
+    if casing != "capitalized":
+        return unknown  # lowercase — no change
+
+    if not known_start:
+        return unknown.title()
+
+    # If known_start ends with a space, unknown starts a new word
+    if known_start.endswith(" "):
+        return unknown.title()
+
+    # Unknown starts mid-word: first fragment lowercase, rest title-cased
+    parts = unknown.split(" ")
+    result = [parts[0].lower()]
+    for part in parts[1:]:
+        result.append(part.title() if part else "")
+    return " ".join(result)
+
+
 def solve_full_name_dictionary(
     font: ImageFont.FreeTypeFont,
     target_width: float,
@@ -81,23 +108,17 @@ def solve_full_name_dictionary(
     known_start: str = "",
     known_end: str = "",
 ) -> list[SolveResult]:
-    """Match associate first x last name combinations against target width.
+    """Match per-person full name variants against target width.
 
-    Generates the Cartesian product of associate first and last names,
-    applies casing, and checks each combination's rendered width.
-    Also checks associate name variants (initials, nicknames).
+    Uses pre-built multi-word name variants from associates.json
+    (full names, initial+last, nickname+last) — each tied to a real
+    person rather than a Cartesian product of unrelated names.
 
     If known_start/known_end are set, filters candidates and measures
     only the unknown portion against the target width.
     """
-    from unredact.pipeline.word_filter import (
-        _get_associate_firsts,
-        _get_associate_lasts,
-        _get_associate_variants,
-    )
+    from unredact.pipeline.word_filter import _get_associate_variants
 
-    firsts = _get_associate_firsts()
-    lasts = _get_associate_lasts()
     variants = _get_associate_variants()
 
     results: list[SolveResult] = []
@@ -106,33 +127,28 @@ def solve_full_name_dictionary(
     ks_lower = known_start.lower()
     ke_lower = known_end.lower()
 
-    def _check(raw: str, display: str):
-        """Check a candidate. raw is lowercase, display is cased."""
+    for variant in variants:
+        raw = variant.lower()
+        display = _apply_casing(variant, casing)
+
         if display in seen:
-            return
+            continue
         seen.add(display)
 
-        # Filter by known start/end
         if ks_lower and not raw.startswith(ks_lower):
-            return
+            continue
         if ke_lower and not raw.endswith(ke_lower):
-            return
+            continue
 
         if known_start or known_end:
-            # Measure only the unknown portion
             end_idx = len(raw) - len(known_end) if known_end else len(raw)
             unknown_raw = raw[len(known_start):end_idx]
             if not unknown_raw:
-                return
-            unknown_display = _apply_casing(unknown_raw, casing)
-            # If known_start exists and casing is capitalized, unknown part is mid-word
-            if known_start and casing == "capitalized":
-                # The unknown part follows known text, so it's lowercase
-                # (title() would wrongly capitalize first char of unknown)
-                unknown_display = unknown_raw.lower()
+                continue
+            unknown_display = _case_unknown_portion(unknown_raw, known_start, casing)
 
-            effective_left = known_start[-1] if known_start else left_context
-            effective_right = known_end[0] if known_end else right_context
+            effective_left = _apply_casing(known_start, casing)[-1] if known_start else left_context
+            effective_right = display[end_idx] if known_end else right_context
 
             if effective_left or effective_right:
                 full = effective_left + unknown_display + effective_right
@@ -155,18 +171,6 @@ def solve_full_name_dictionary(
         error = abs(width - target_width)
         if error <= tolerance:
             results.append(SolveResult(text=display, width=float(width), error=float(error)))
-
-    # Cartesian product of first x last names
-    for first in firsts:
-        for last in lasts:
-            raw = first + " " + last
-            display = _apply_casing(raw, casing)
-            _check(raw, display)
-
-    # Associate variants (J. Doe, Jeff Epstein, etc.)
-    for variant in variants:
-        display = _apply_casing(variant, casing)
-        _check(variant.lower(), display)
 
     results.sort(key=lambda r: (r.error, r.text))
     return results
@@ -236,19 +240,12 @@ def solve_name_dictionary(
         if not unknown:
             continue  # entire name is known, nothing to measure
 
-        # Apply same casing to the unknown portion
-        if casing == "uppercase":
-            unknown_display = unknown.upper()
-        elif casing == "capitalized":
-            # Mid-word after known_start: lowercase. At word start: title case.
-            unknown_display = unknown.lower() if known_start else unknown.title()
-        else:
-            unknown_display = unknown
+        unknown_display = _case_unknown_portion(unknown, known_start, casing)
 
         # Determine kerning context
         # If known_start is set, its last char is left context for the unknown part
-        effective_left = known_start[-1] if known_start else left_context
-        effective_right = known_end[0] if known_end else right_context
+        effective_left = _apply_casing(known_start, casing)[-1] if known_start else left_context
+        effective_right = display[end_idx] if known_end else right_context
 
         # Measure width of unknown portion with kerning context
         if effective_left or effective_right:

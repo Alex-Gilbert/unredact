@@ -110,6 +110,22 @@ class TestSolveNameDictionary:
 
     @patch("unredact.pipeline.word_filter._get_associate_firsts")
     @patch("unredact.pipeline.word_filter._get_associate_lasts")
+    def test_known_start_capitalized_casing(self, mock_lasts, mock_firsts):
+        """With known_start and capitalized casing, unknown part is mid-word lowercase."""
+        mock_firsts.return_value = ["john"]
+        mock_lasts.return_value = []
+
+        # known_start="j", unknown="ohn", should measure "ohn" (lowercase)
+        font = _mock_font({"ohn": 21.0})
+
+        results = solve_name_dictionary(
+            font, 21.0, 1.0, known_start="j", casing="capitalized",
+        )
+        texts = [r.text for r in results]
+        assert "John" in texts
+
+    @patch("unredact.pipeline.word_filter._get_associate_firsts")
+    @patch("unredact.pipeline.word_filter._get_associate_lasts")
     def test_context_chars(self, mock_lasts, mock_firsts):
         mock_firsts.return_value = ["john"]
         mock_lasts.return_value = []
