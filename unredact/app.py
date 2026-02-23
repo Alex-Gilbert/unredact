@@ -569,6 +569,22 @@ async def solve(req: SolveRequest):
     return EventSourceResponse(event_generator(), headers={"X-Solve-Id": solve_id})
 
 
+@app.get("/api/solve/{solve_id}/results")
+async def get_solve_results(solve_id: str, offset: int = 0, limit: int = 200):
+    if solve_id not in _solve_results:
+        return JSONResponse({"error": "solve not found"}, status_code=404)
+    buf = _solve_results[solve_id]
+    page = buf[offset:offset + limit]
+    complete = solve_id not in _active_solves
+    return {
+        "results": page,
+        "total": len(buf),
+        "offset": offset,
+        "limit": limit,
+        "complete": complete,
+    }
+
+
 @app.delete("/api/solve/{solve_id}")
 async def cancel_solve(solve_id: str):
     if solve_id in _active_solves:

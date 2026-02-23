@@ -385,3 +385,42 @@ async def test_solve_pagination_caps_at_page_size(monkeypatch):
         # The buffer should contain ALL results (including the ones streamed)
         assert solve_id in _solve_results
         assert len(_solve_results[solve_id]) == total
+
+
+@pytest.mark.anyio
+async def test_solve_pagination_endpoint():
+    """GET /api/solve/{id}/results should return paginated buffered results."""
+    fake_id = "test123"
+    _solve_results[fake_id] = [
+        {"text": f"word{i}", "width_px": 50.0, "error_px": 0.1, "source": "words"}
+        for i in range(500)
+    ]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # First page
+        resp = await client.get(f"/api/solve/{fake_id}/results?offset=0&limit=200")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["results"]) == 200
+        assert data["total"] == 500
+        assert data["offset"] == 0
+        assert data["limit"] == 200
+        assert data["complete"] is True
+
+        # Second page
+        resp = await client.get(f"/api/solve/{fake_id}/results?offset=200&limit=200")
+        data = resp.json()
+        assert len(data["results"]) == 200
+        assert data["results"][0]["text"] == "word200"
+
+        # Third page (partial)
+        resp = await client.get(f"/api/solve/{fake_id}/results?offset=400&limit=200")
+        data = resp.json()
+        assert len(data["results"]) == 100
+
+        # Unknown solve_id
+        resp = await client.get("/api/solve/nonexistent/results")
+        assert resp.status_code == 404
+
+    _solve_results.pop(fake_id, None)
