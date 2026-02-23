@@ -585,6 +585,36 @@ async def get_solve_results(solve_id: str, offset: int = 0, limit: int = 200):
     }
 
 
+class ValidateRequest(BaseModel):
+    left_context: str = ""
+    right_context: str = ""
+
+
+@app.post("/api/solve/{solve_id}/validate")
+async def validate_solve(solve_id: str, req: ValidateRequest):
+    if solve_id not in _solve_results:
+        return JSONResponse({"error": "solve not found"}, status_code=404)
+
+    from unredact.pipeline.llm_validate import validate_candidates
+
+    buf = _solve_results[solve_id]
+    candidates = [r["text"] for r in buf]
+
+    try:
+        scores = await validate_candidates(
+            req.left_context, req.right_context, candidates,
+        )
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    scored = []
+    for i, result in enumerate(buf):
+        scored.append({**result, "llm_score": scores[i] if i < len(scores) else 0})
+    scored.sort(key=lambda x: x["llm_score"], reverse=True)
+
+    return {"results": scored, "total": len(scored)}
+
+
 @app.delete("/api/solve/{solve_id}")
 async def cancel_solve(solve_id: str):
     if solve_id in _active_solves:

@@ -442,3 +442,51 @@ async def test_cancel_clears_buffer():
 
     assert fake_id not in _solve_results
     _active_solves.pop(fake_id, None)
+
+
+@pytest.mark.anyio
+async def test_validate_endpoint(monkeypatch):
+    """POST /api/solve/{id}/validate should return LLM-scored results."""
+    from unredact.pipeline import llm_validate
+
+    fake_id = "validate_test"
+    _solve_results[fake_id] = [
+        {"text": "Smith", "width_px": 50.0, "error_px": 0.1, "source": "names"},
+        {"text": "house", "width_px": 50.0, "error_px": 0.2, "source": "words"},
+        {"text": "running", "width_px": 50.0, "error_px": 0.3, "source": "words"},
+    ]
+
+    async def mock_validate(left, right, candidates):
+        return [95, 10, 5]
+
+    monkeypatch.setattr(llm_validate, "validate_candidates", mock_validate)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(f"/api/solve/{fake_id}/validate", json={
+            "left_context": "Dear Mr.",
+            "right_context": ", we are writing",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["results"]) == 3
+        assert data["total"] == 3
+        # Sorted by llm_score descending
+        assert data["results"][0]["text"] == "Smith"
+        assert data["results"][0]["llm_score"] == 95
+        assert data["results"][1]["llm_score"] == 10
+        assert data["results"][2]["llm_score"] == 5
+
+    _solve_results.pop(fake_id, None)
+
+
+@pytest.mark.anyio
+async def test_validate_unknown_solve_id():
+    """POST /api/solve/{id}/validate with unknown id should 404."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/solve/nonexistent/validate", json={
+            "left_context": "test",
+            "right_context": "test",
+        })
+        assert resp.status_code == 404
