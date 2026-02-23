@@ -589,6 +589,7 @@ async def get_solve_results(solve_id: str, offset: int = 0, limit: int = 200):
 async def cancel_solve(solve_id: str):
     if solve_id in _active_solves:
         _active_solves[solve_id] = True
+        _solve_results.pop(solve_id, None)
         return {"status": "cancelled"}
     return JSONResponse({"error": "solve not found"}, status_code=404)
 

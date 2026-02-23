@@ -424,3 +424,21 @@ async def test_solve_pagination_endpoint():
         assert resp.status_code == 404
 
     _solve_results.pop(fake_id, None)
+
+
+@pytest.mark.anyio
+async def test_cancel_clears_buffer():
+    """DELETE /api/solve/{id} should also clean up the results buffer."""
+    from unredact.app import _active_solves
+
+    fake_id = "cancel_test"
+    _active_solves[fake_id] = False
+    _solve_results[fake_id] = [{"text": "test"}]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.delete(f"/api/solve/{fake_id}")
+        assert resp.status_code == 200
+
+    assert fake_id not in _solve_results
+    _active_solves.pop(fake_id, None)
