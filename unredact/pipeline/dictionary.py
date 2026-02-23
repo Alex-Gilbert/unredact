@@ -276,11 +276,13 @@ def solve_word_dictionary(
     known_end: str = "",
     ensure_plural: bool = False,
     vocab_size: int = 0,
+    two_word: bool = False,
 ):
-    """Search English nouns (single-word) and adj+noun phrases (two-word).
+    """Search English nouns and optionally adj+noun phrases.
 
-    Yields results as found for SSE streaming. Phase 1 searches single nouns,
-    phase 2 searches two-word combinations using binary search.
+    Yields results as found for SSE streaming. Phase 1 searches nouns
+    (including multi-word nouns already in the dictionary). Phase 2
+    (disabled by default) searches adjective+noun combinations.
 
     Word lists are frequency-sorted (most common first). vocab_size > 0 slices
     to the N most common words; 0 means no limit.
@@ -326,6 +328,9 @@ def solve_word_dictionary(
         error = abs(width - target_width)
         if error <= tolerance:
             yield SolveResult(text=display, width=float(width), error=float(error))
+
+    if not two_word:
+        return
 
     # Phase 2: two-word search (word1 + " " + noun)
     import bisect

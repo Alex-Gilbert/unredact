@@ -94,7 +94,7 @@ class TestSolveWordDictionaryTwoWord:
         target = font.getlength("large house")
         results = list(solve_word_dictionary(
             font, target, tolerance=1.0,
-            casing="lowercase", known_start="large",
+            casing="lowercase", known_start="large", two_word=True,
         ))
         texts = [r.text for r in results]
         assert "large house" in texts
@@ -104,7 +104,7 @@ class TestSolveWordDictionaryTwoWord:
         target = font.getlength("Large House")
         results = list(solve_word_dictionary(
             font, target, tolerance=1.0,
-            casing="capitalized", known_start="Large",
+            casing="capitalized", known_start="Large", two_word=True,
         ))
         texts = [r.text for r in results]
         assert "Large House" in texts
@@ -115,6 +115,7 @@ class TestSolveWordDictionaryTwoWord:
         results = list(solve_word_dictionary(
             font, target, tolerance=1.0,
             casing="lowercase", ensure_plural=True, known_start="large",
+            two_word=True,
         ))
         texts = [r.text for r in results]
         assert "large houses" in texts
@@ -124,7 +125,7 @@ class TestSolveWordDictionaryTwoWord:
         target = font.getlength("large house")
         results = list(solve_word_dictionary(
             font, target, tolerance=1.0,
-            casing="lowercase", known_start="la",
+            casing="lowercase", known_start="la", two_word=True,
         ))
         texts = [r.text for r in results]
         assert "large house" in texts
@@ -135,18 +136,30 @@ class TestSolveWordDictionaryTwoWord:
         target = font.getlength("large house")
         results = list(solve_word_dictionary(
             font, target, tolerance=1.0,
-            casing="lowercase", known_end="se",
+            casing="lowercase", known_end="se", two_word=True,
         ))
         texts = [r.text for r in results]
         assert "large house" in texts
         assert all(t.lower().endswith("se") for t in texts)
+
+    def test_two_word_disabled_by_default(self):
+        """Without two_word=True, only dictionary nouns are searched."""
+        font = _get_test_font()
+        target = font.getlength("large house")
+        results = list(solve_word_dictionary(
+            font, target, tolerance=1.0,
+            casing="lowercase", known_start="large",
+        ))
+        texts = [r.text for r in results]
+        # "large house" is not a dictionary noun, so it should NOT appear
+        assert "large house" not in texts
 
     def test_no_duplicates_across_phases(self):
         font = _get_test_font()
         target = font.getlength("dog")
         results = list(solve_word_dictionary(
             font, target, tolerance=1.0,
-            casing="lowercase",
+            casing="lowercase", two_word=True,
         ))
         texts = [r.text for r in results]
         assert len(texts) == len(set(texts))
