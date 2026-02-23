@@ -26,6 +26,7 @@ dev = [
     "scipy>=1.14",
 ]
 build = [
+    "nltk>=3.8",
     "pandas>=2.0",
     "pyarrow>=14.0",
 ]
