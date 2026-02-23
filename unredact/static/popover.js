@@ -11,7 +11,7 @@ import {
   solveResults, solveStatus, solveStart, solveStop, solveAccept,
   solveTolerance, solveTolValue,
   solveKnownStart, solveKnownEnd,
-  solveMode, filterLabel, pluralLabel,
+  solveMode, filterLabel, pluralLabel, vocabLabel,
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
 
@@ -41,7 +41,17 @@ export function openPopover(id) {
   solveStop.hidden = true;
   // For approved redactions, restore the solution as preview for re-editing
   if (r.status === "approved" && r.solution) {
-    r.preview = r.solution.text;
+    let restored = r.solution.text;
+    const ks = solveKnownStart.value;
+    const ke = solveKnownEnd.value;
+    if (ks && restored.toLowerCase().startsWith(ks.toLowerCase())) {
+      restored = restored.slice(ks.length);
+    }
+    if (ke && restored.toLowerCase().endsWith(ke.toLowerCase())) {
+      restored = restored.slice(0, -ke.length);
+    }
+    r.solveFullText = r.solution.text;
+    r.preview = restored;
     r.status = "analyzed";
     solveAccept.hidden = true;
   } else {
@@ -175,6 +185,7 @@ export function initPopover() {
     if (!r) return;
     const guess = redactionMarker.value.trim();
     r.preview = guess || null;
+    r.solveFullText = null;  // manual input replaces solver result
     redactionMarker.className = guess ? "redaction-marker preview" : "redaction-marker";
     solveAccept.hidden = !guess;
     renderCanvas();
@@ -186,6 +197,8 @@ export function initPopover() {
 
   solveMode.addEventListener("change", () => {
     filterLabel.hidden = solveMode.value !== "enumerate";
-    pluralLabel.hidden = solveMode.value !== "word";
+    const isWord = solveMode.value === "word";
+    pluralLabel.hidden = !isWord;
+    vocabLabel.hidden = !isWord;
   });
 }

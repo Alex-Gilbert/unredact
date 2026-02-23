@@ -275,11 +275,15 @@ def solve_word_dictionary(
     known_start: str = "",
     known_end: str = "",
     ensure_plural: bool = False,
+    vocab_size: int = 0,
 ):
     """Search English nouns (single-word) and adj+noun phrases (two-word).
 
     Yields results as found for SSE streaming. Phase 1 searches single nouns,
     phase 2 searches two-word combinations using binary search.
+
+    Word lists are frequency-sorted (most common first). vocab_size > 0 slices
+    to the N most common words; 0 means no limit.
     """
     from unredact.pipeline.word_filter import (
         _get_nouns,
@@ -288,6 +292,11 @@ def solve_word_dictionary(
 
     nouns = _get_nouns()
     plurals = _get_nouns_plural()
+
+    if vocab_size > 0:
+        nouns = nouns[:vocab_size]
+        plurals = plurals[:vocab_size]
+
     word_list = plurals if ensure_plural else nouns
 
     ks_lower = known_start.lower()
@@ -324,6 +333,8 @@ def solve_word_dictionary(
     from unredact.pipeline.word_filter import _get_adjectives
 
     adjectives = _get_adjectives()
+    if vocab_size > 0:
+        adjectives = adjectives[:vocab_size]
 
     # Word1 pool: adjectives + nouns (deduplicated, sorted)
     word1_set = set(adjectives) | set(nouns)
