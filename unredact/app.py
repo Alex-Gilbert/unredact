@@ -273,6 +273,11 @@ async def get_page_data(doc_id: str, page: int):
 # Active solve tasks (for cancellation)
 _active_solves: dict[str, bool] = {}
 
+PAGE_SIZE = 200
+
+# Buffered solve results for pagination (keyed by solve_id)
+_solve_results: dict[str, list[dict]] = {}
+
 
 class SolveRequest(BaseModel):
     font_id: str
