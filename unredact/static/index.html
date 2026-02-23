@@ -150,7 +150,13 @@
               <button id="solve-start" class="solve-btn">Solve</button>
               <button id="solve-stop" class="solve-btn" hidden>Stop</button>
               <button id="solve-accept" class="solve-btn accept" hidden>Accept</button>
+              <button id="solve-validate" class="solve-btn" hidden>Validate</button>
               <span id="solve-status"></span>
+            </div>
+            <div id="validate-panel" hidden>
+              <label>Left context <input type="text" id="validate-left" spellcheck="false" autocomplete="off"></label>
+              <label>Right context <input type="text" id="validate-right" spellcheck="false" autocomplete="off"></label>
+              <button id="validate-run" class="solve-btn">Run</button>
             </div>
             <div id="solve-results"></div>
             <button id="solve-load-more" class="solve-btn" hidden>Load more</button>
