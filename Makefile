@@ -1,4 +1,4 @@
-.PHONY: build build-solver run stop restart solver app logs status clean dev kill build-associates build-emails check-api-key
+.PHONY: build build-solver run stop restart solver app logs status clean dev kill build-associates build-emails build-word-lists check-api-key
 
 SOLVER_BIN  = solver_rs/target/release/unredact-solver
 SOLVER_PORT ?= 3100
@@ -155,6 +155,9 @@ build-associates:
 
 build-emails:
 	$(PYTHON) scripts/build_emails.py
+
+build-word-lists:
+	$(PYTHON) scripts/build_word_lists.py
 
 test: solver
 	$(PYTHON) -m pytest tests/ --ignore=tests/test_alignment.py -v
