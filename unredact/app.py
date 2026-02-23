@@ -22,7 +22,7 @@ from unredact.pipeline.font_detect import CANDIDATE_FONTS, _find_font_path
 from unredact.pipeline.analyze_page import analyze_page, analyze_spot_redaction
 from unredact.pipeline.detect_redactions import spot_redaction
 from unredact.pipeline.solver import build_constraint, SolveResult
-from unredact.pipeline.dictionary import solve_dictionary, solve_full_name_dictionary, solve_name_dictionary
+from unredact.pipeline.dictionary import solve_dictionary, solve_full_name_dictionary, solve_name_dictionary, solve_word_dictionary
 from unredact.pipeline.word_filter import _get_emails
 from unredact.pipeline.width_table import build_width_table, CHARSETS
 
@@ -282,10 +282,11 @@ class SolveRequest(BaseModel):
     left_context: str = ""
     right_context: str = ""
     hints: dict = {}
-    mode: str = "name"  # "name", "full_name", "email", "enumerate"
+    mode: str = "name"  # "name", "full_name", "email", "word", "enumerate"
     word_filter: str = "none"  # only used for enumerate mode
     known_start: str = ""
     known_end: str = ""
+    ensure_plural: bool = False
 
 
 def _build_rust_solve_payload(
@@ -432,6 +433,29 @@ async def solve(req: SolveRequest):
                             "error_px": round(r.error, 2),
                             "source": "emails",
                         })
+
+            # Word mode: English nouns + adjective/noun phrases
+            if req.mode == "word" and not _active_solves.get(solve_id):
+                for r in solve_word_dictionary(
+                    font, req.gap_width_px, req.tolerance_px,
+                    req.left_context, req.right_context,
+                    casing=charset_name,
+                    known_start=req.known_start,
+                    known_end=req.known_end,
+                    ensure_plural=req.ensure_plural,
+                ):
+                    if _active_solves.get(solve_id):
+                        break
+                    if r.text in found_texts:
+                        continue
+                    found_texts.add(r.text)
+                    yield json.dumps({
+                        "status": "match",
+                        "text": r.text,
+                        "width_px": round(r.width, 2),
+                        "error_px": round(r.error, 2),
+                        "source": "words",
+                    })
 
             # Enumerate mode: Rust backend
             if req.mode == "enumerate" and not _active_solves.get(solve_id):
