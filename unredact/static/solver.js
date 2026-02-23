@@ -6,7 +6,9 @@ import {
   solveCharset, solveTolerance, solveMode, solveFilter,
   solveKnownStart, solveKnownEnd, solvePlural, solveVocab,
   solveResults, solveStatus, solveStart, solveStop,
-  solveAccept, solveLoadMore, redactionMarker, escapeHtml,
+  solveAccept, solveLoadMore, solveValidate,
+  validatePanel, validateLeft, validateRight, validateRun,
+  redactionMarker, escapeHtml,
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
 import { matchAssociates, tierBadgeClass, tierLabel, isVictimMatch, showAssocDetail } from './associates.js';
@@ -45,6 +47,8 @@ export function startSolve() {
   solveStart.hidden = true;
   solveStop.hidden = false;
   solveAccept.hidden = true;
+  solveValidate.hidden = true;
+  validatePanel.hidden = true;
 
   const body = {
     font_id: fontId,
@@ -210,6 +214,9 @@ function handleSolveEvent(data, redactionId) {
     solveStart.hidden = false;
     solveStop.hidden = true;
     activeEventSource = null;
+    if (totalFound > 0) {
+      solveValidate.hidden = false;
+    }
   }
 }
 
@@ -278,9 +285,88 @@ async function loadMore() {
   }
 }
 
+function showValidatePanel() {
+  const id = state.activeRedaction;
+  if (!id) return;
+  const r = state.redactions[id];
+  if (!r || !r.analysis) return;
+
+  const a = r.analysis;
+  const o = r.overrides || {};
+  const leftText = o.leftText ?? (a.segments.length > 0 ? a.segments[0].text : "");
+  const rightText = o.rightText ?? (a.segments.length > 1 ? a.segments[1].text : "");
+
+  validateLeft.value = leftText;
+  validateRight.value = rightText;
+  validatePanel.hidden = false;
+}
+
+async function runValidation() {
+  if (!currentSolveId) return;
+  validateRun.disabled = true;
+  validateRun.textContent = "Validating...";
+  solveStatus.textContent = `Validating ${totalFound} results...`;
+
+  try {
+    const resp = await fetch(`/api/solve/${currentSolveId}/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        left_context: validateLeft.value,
+        right_context: validateRight.value,
+      }),
+    });
+    if (!resp.ok) throw new Error("Validation failed");
+    const data = await resp.json();
+
+    // Replace results with scored list
+    solveResults.innerHTML = "";
+    displayedCount = 0;
+    solveLoadMore.hidden = true;
+
+    const redactionId = state.activeRedaction;
+    for (const item of data.results) {
+      renderScoredResult(item, redactionId);
+    }
+
+    solveStatus.textContent = `Validated. ${data.total} results scored.`;
+    validatePanel.hidden = true;
+  } catch (err) {
+    solveStatus.textContent = "Validation error: " + err.message;
+  } finally {
+    validateRun.disabled = false;
+    validateRun.textContent = "Run";
+  }
+}
+
+function renderScoredResult(data, redactionId) {
+  handleSolveEvent({ status: "match", ...data }, redactionId);
+
+  if (data.llm_score !== undefined) {
+    const results = solveResults.children;
+    for (const el of results) {
+      const textEl = el.querySelector(".result-text");
+      if (textEl && textEl.textContent === data.text && !el.querySelector(".llm-score")) {
+        const badge = document.createElement("span");
+        badge.className = "llm-score";
+        const score = data.llm_score;
+        if (score >= 70) badge.classList.add("score-high");
+        else if (score >= 30) badge.classList.add("score-mid");
+        else badge.classList.add("score-low");
+        badge.textContent = String(score);
+        badge.title = "LLM contextual fit score";
+        el.prepend(badge);
+        break;
+      }
+    }
+  }
+}
+
 /** Set up solver button listeners. Call once from main.js. */
 export function initSolver() {
   solveStart.addEventListener("click", startSolve);
   solveStop.addEventListener("click", stopSolve);
   solveLoadMore.addEventListener("click", loadMore);
+  solveValidate.addEventListener("click", showValidatePanel);
+  validateRun.addEventListener("click", runValidation);
 }

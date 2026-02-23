@@ -827,6 +827,65 @@ main {
   to { opacity: 0; }
 }
 
+/* LLM validation score badges */
+.llm-score {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+.llm-score.score-high {
+  background: #2d8a4e;
+  color: #fff;
+}
+
+.llm-score.score-mid {
+  background: var(--yellow);
+  color: #000;
+}
+
+.llm-score.score-low {
+  background: var(--red);
+  color: #fff;
+}
+
+/* Validate panel */
+#validate-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  margin-top: 4px;
+}
+
+#validate-panel label {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 120px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+#validate-panel input {
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  margin-top: 2px;
+}
+
+#validate-panel .solve-btn {
+  align-self: flex-end;
+}
+
 /* ── Mobile (≤768px) ── */
 
 @media (max-width: 768px) {
