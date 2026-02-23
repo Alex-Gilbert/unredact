@@ -92,6 +92,39 @@ def _get_associate_variants() -> list[str]:
     return _associate_variants
 
 
+
+_nouns: list[str] | None = None
+_nouns_plural: list[str] | None = None
+_adjectives: list[str] | None = None
+
+
+def _load_list(filename: str) -> list[str]:
+    path = DATA_DIR / filename
+    if not path.exists():
+        return []
+    return [line.strip() for line in path.read_text().splitlines() if line.strip()]
+
+
+def _get_nouns() -> list[str]:
+    global _nouns
+    if _nouns is None:
+        _nouns = _load_list("nouns.txt")
+    return _nouns
+
+
+def _get_nouns_plural() -> list[str]:
+    global _nouns_plural
+    if _nouns_plural is None:
+        _nouns_plural = _load_list("nouns_plural.txt")
+    return _nouns_plural
+
+
+def _get_adjectives() -> list[str]:
+    global _adjectives
+    if _adjectives is None:
+        _adjectives = _load_list("adjectives.txt")
+    return _adjectives
+
 def _get_all_names() -> set[str]:
     return _get_first_names() | _get_last_names()
 
