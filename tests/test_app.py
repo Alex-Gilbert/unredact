@@ -1,10 +1,12 @@
 import io
+import json
 from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from unredact.app import app
+import unredact.app
+from unredact.app import app, PAGE_SIZE, _solve_results
 
 
 @pytest.fixture
@@ -261,3 +263,125 @@ async def test_spot_returns_analysis(pdf_bytes: bytes):
             assert "segments" in data["analysis"]
             assert "gap" in data["analysis"]
             assert "line" in data["analysis"]
+
+
+@pytest.mark.anyio
+async def test_solve_paginates_results():
+    """Solve should stream at most PAGE_SIZE results and buffer the rest."""
+    from unredact.app import PAGE_SIZE
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/fonts")
+        fonts = resp.json()["fonts"]
+        font = next(f for f in fonts if f["available"])
+
+        # Use word mode with full vocab and wide tolerance to get many results
+        resp = await client.post("/api/solve", json={
+            "font_id": font["id"],
+            "font_size": 40,
+            "gap_width_px": 80.0,
+            "tolerance_px": 10.0,
+            "left_context": "",
+            "right_context": "",
+            "hints": {"charset": "lowercase"},
+            "mode": "word",
+            "vocab_size": 0,
+        })
+        assert resp.status_code == 200
+
+        # Parse SSE events
+        events = []
+        for line in resp.text.split("\n"):
+            if line.startswith("data: "):
+                try:
+                    events.append(json.loads(line[6:]))
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+        matches = [e for e in events if e.get("status") == "match"]
+        done_events = [e for e in events if e.get("status") == "done"]
+        page_events = [e for e in events if e.get("status") == "page_complete"]
+
+        assert len(done_events) == 1
+        total = done_events[0]["total_found"]
+
+        if total > PAGE_SIZE:
+            assert len(matches) == PAGE_SIZE
+            assert len(page_events) == 1
+            assert page_events[0]["sent"] == PAGE_SIZE
+        else:
+            assert len(matches) == total
+            assert len(page_events) == 0
+
+
+def _parse_sse_events(body: str) -> list[dict]:
+    """Parse SSE body text into a list of JSON event dicts."""
+    events = []
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith("data: "):
+            try:
+                events.append(json.loads(line[6:]))
+            except (json.JSONDecodeError, ValueError):
+                continue
+    return events
+
+
+@pytest.mark.anyio
+async def test_solve_pagination_caps_at_page_size(monkeypatch):
+    """POST /api/solve should cap streamed match events at PAGE_SIZE and send page_complete."""
+    # Use a small PAGE_SIZE so we don't need thousands of results
+    small_page = 5
+    monkeypatch.setattr(unredact.app, "PAGE_SIZE", small_page)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/fonts")
+        fonts = resp.json()["fonts"]
+        font = next(f for f in fonts if f["available"])
+
+        # Word mode with small vocab but wide tolerance to generate many matches (>> 5)
+        resp = await client.post("/api/solve", json={
+            "font_id": font["id"],
+            "font_size": 40,
+            "gap_width_px": 100.0,
+            "tolerance_px": 20.0,
+            "left_context": "",
+            "right_context": "",
+            "hints": {"charset": "lowercase"},
+            "mode": "word",
+            "vocab_size": 200,
+        })
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers.get("content-type", "")
+
+        solve_id = resp.headers["x-solve-id"]
+        events = _parse_sse_events(resp.text)
+
+        # Separate event types
+        match_events = [e for e in events if e.get("status") == "match"]
+        page_complete_events = [e for e in events if e.get("status") == "page_complete"]
+        done_events = [e for e in events if e.get("status") == "done"]
+
+        # Exactly PAGE_SIZE match events should be streamed
+        assert len(match_events) == small_page, (
+            f"Expected {small_page} match events, got {len(match_events)}"
+        )
+
+        # A page_complete event should be present
+        assert len(page_complete_events) == 1
+        pc = page_complete_events[0]
+        assert pc["sent"] == small_page
+        assert pc["solve_id"] == solve_id
+
+        # The done event should still be present with total_found > PAGE_SIZE
+        assert len(done_events) == 1
+        total = done_events[0]["total_found"]
+        assert total > small_page, (
+            f"Expected total_found > {small_page}, got {total}"
+        )
+
+        # The buffer should contain ALL results (including the ones streamed)
+        assert solve_id in _solve_results
+        assert len(_solve_results[solve_id]) == total

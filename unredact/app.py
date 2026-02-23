@@ -370,9 +370,28 @@ async def solve(req: SolveRequest):
     _active_solves[solve_id] = False
 
     async def event_generator():
+        _solve_results.clear()
+        _solve_results[solve_id] = []
+
         try:
             found_texts = set()
+            sent_count = 0
+            page_complete_sent = False
             charset_name = req.hints.get("charset", "lowercase")
+
+            def _record(d):
+                """Buffer result and return True if it should be yielded as SSE."""
+                nonlocal sent_count, page_complete_sent
+                _solve_results[solve_id].append(d)
+                sent_count += 1
+                return sent_count <= PAGE_SIZE
+
+            def _page_complete_event():
+                nonlocal page_complete_sent
+                if not page_complete_sent:
+                    page_complete_sent = True
+                    return json.dumps({"status": "page_complete", "sent": PAGE_SIZE, "solve_id": solve_id})
+                return None
 
             # Name mode: single-word associate names
             if req.mode == "name" and not _active_solves.get(solve_id):
@@ -389,13 +408,19 @@ async def solve(req: SolveRequest):
                     if r.text in found_texts:
                         continue
                     found_texts.add(r.text)
-                    yield json.dumps({
+                    d = {
                         "status": "match",
                         "text": r.text,
                         "width_px": round(r.width, 2),
                         "error_px": round(r.error, 2),
                         "source": "names",
-                    })
+                    }
+                    if _record(d):
+                        yield json.dumps(d)
+                    else:
+                        evt = _page_complete_event()
+                        if evt:
+                            yield evt
 
             # Full name mode: first x last Cartesian product + variants
             if req.mode == "full_name" and not _active_solves.get(solve_id):
@@ -412,13 +437,19 @@ async def solve(req: SolveRequest):
                     if r.text in found_texts:
                         continue
                     found_texts.add(r.text)
-                    yield json.dumps({
+                    d = {
                         "status": "match",
                         "text": r.text,
                         "width_px": round(r.width, 2),
                         "error_px": round(r.error, 2),
                         "source": "names",
-                    })
+                    }
+                    if _record(d):
+                        yield json.dumps(d)
+                    else:
+                        evt = _page_complete_event()
+                        if evt:
+                            yield evt
 
             # Email mode
             if req.mode == "email" and not _active_solves.get(solve_id):
@@ -432,13 +463,19 @@ async def solve(req: SolveRequest):
                         if _active_solves.get(solve_id):
                             break
                         found_texts.add(r.text)
-                        yield json.dumps({
+                        d = {
                             "status": "match",
                             "text": r.text,
                             "width_px": round(r.width, 2),
                             "error_px": round(r.error, 2),
                             "source": "emails",
-                        })
+                        }
+                        if _record(d):
+                            yield json.dumps(d)
+                        else:
+                            evt = _page_complete_event()
+                            if evt:
+                                yield evt
 
             # Word mode: English nouns + adjective/noun phrases
             if req.mode == "word" and not _active_solves.get(solve_id):
@@ -456,13 +493,19 @@ async def solve(req: SolveRequest):
                     if r.text in found_texts:
                         continue
                     found_texts.add(r.text)
-                    yield json.dumps({
+                    d = {
                         "status": "match",
                         "text": r.text,
                         "width_px": round(r.width, 2),
                         "error_px": round(r.error, 2),
                         "source": "words",
-                    })
+                    }
+                    if _record(d):
+                        yield json.dumps(d)
+                    else:
+                        evt = _page_complete_event()
+                        if evt:
+                            yield evt
 
             # Enumerate mode: Rust backend
             if req.mode == "enumerate" and not _active_solves.get(solve_id):
@@ -502,13 +545,19 @@ async def solve(req: SolveRequest):
                                 if text in found_texts:
                                     continue
                                 found_texts.add(text)
-                                yield json.dumps({
+                                d = {
                                     "status": "match",
                                     "text": text,
                                     "width_px": round(r["width"], 2),
                                     "error_px": round(r["error"], 2),
                                     "source": "enumerate",
-                                })
+                                }
+                                if _record(d):
+                                    yield json.dumps(d)
+                                else:
+                                    evt = _page_complete_event()
+                                    if evt:
+                                        yield evt
 
             yield json.dumps({
                 "status": "done",
