@@ -11,7 +11,7 @@ import {
   solveResults, solveStatus, solveStart, solveStop, solveAccept,
   solveTolerance, solveTolValue,
   solveKnownStart, solveKnownEnd,
-  solveMode, filterLabel,
+  solveMode, filterLabel, pluralLabel,
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
 
@@ -186,5 +186,6 @@ export function initPopover() {
 
   solveMode.addEventListener("change", () => {
     filterLabel.hidden = solveMode.value !== "enumerate";
+    pluralLabel.hidden = solveMode.value !== "word";
   });
 }
