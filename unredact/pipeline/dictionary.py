@@ -263,3 +263,57 @@ def solve_name_dictionary(
 
     results.sort(key=lambda r: (r.error, r.text))
     return results
+
+
+def solve_word_dictionary(
+    font: "ImageFont.FreeTypeFont",
+    target_width: float,
+    tolerance: float = 0.0,
+    left_context: str = "",
+    right_context: str = "",
+    casing: str = "lowercase",
+    known_start: str = "",
+    known_end: str = "",
+    ensure_plural: bool = False,
+):
+    """Search English nouns (single-word) and adj+noun phrases (two-word).
+
+    Yields results as found for SSE streaming. Phase 1 searches single nouns,
+    phase 2 searches two-word combinations using binary search.
+    """
+    from unredact.pipeline.word_filter import (
+        _get_nouns,
+        _get_nouns_plural,
+    )
+
+    nouns = _get_nouns()
+    plurals = _get_nouns_plural()
+    word_list = plurals if ensure_plural else nouns
+
+    ks_lower = known_start.lower()
+    ke_lower = known_end.lower()
+    seen: set[str] = set()
+
+    for word in word_list:
+        if ks_lower and not word.startswith(ks_lower):
+            continue
+        if ke_lower and not word.endswith(ke_lower):
+            continue
+
+        display = _apply_casing(word, casing)
+        if display in seen:
+            continue
+        seen.add(display)
+
+        if left_context or right_context:
+            full = left_context + display + right_context
+            full_len = font.getlength(full)
+            left_len = font.getlength(left_context) if left_context else 0.0
+            right_len = font.getlength(right_context) if right_context else 0.0
+            width = full_len - left_len - right_len
+        else:
+            width = font.getlength(display)
+
+        error = abs(width - target_width)
+        if error <= tolerance:
+            yield SolveResult(text=display, width=float(width), error=float(error))
