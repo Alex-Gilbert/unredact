@@ -6,13 +6,18 @@ import {
   solveCharset, solveTolerance, solveMode, solveFilter,
   solveKnownStart, solveKnownEnd, solvePlural, solveVocab,
   solveResults, solveStatus, solveStart, solveStop,
-  solveAccept, redactionMarker, escapeHtml,
+  solveAccept, solveLoadMore, redactionMarker, escapeHtml,
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
 import { matchAssociates, tierBadgeClass, tierLabel, isVictimMatch, showAssocDetail } from './associates.js';
 
 /** @type {AbortController|null} */
 let activeEventSource = null;
+
+/** @type {string|null} */
+let currentSolveId = null;
+let displayedCount = 0;
+let totalFound = 0;
 
 export function startSolve() {
   const id = state.activeRedaction;
@@ -32,6 +37,10 @@ export function startSolve() {
   const rightCtx = rightText.length > 0 ? rightText[0] : "";
 
   solveResults.innerHTML = "";
+  solveLoadMore.hidden = true;
+  currentSolveId = null;
+  displayedCount = 0;
+  totalFound = 0;
   solveStatus.textContent = "Starting...";
   solveStart.hidden = true;
   solveStop.hidden = false;
@@ -184,10 +193,19 @@ function handleSolveEvent(data, redactionId) {
       solveResults.appendChild(div);
     }
 
-    solveStatus.textContent = `Found ${solveResults.children.length} matches`;
+    displayedCount++;
+    solveStatus.textContent = `Found ${displayedCount} matches`;
   } else if (data.status === "running") {
     solveStatus.textContent = `Checked ${data.checked}, found ${data.found}...`;
+  } else if (data.status === "page_complete") {
+    currentSolveId = data.solve_id;
+    solveStatus.textContent = `Found ${displayedCount} matches, searching for more...`;
   } else if (data.status === "done") {
+    totalFound = data.total_found;
+    if (totalFound > displayedCount) {
+      solveLoadMore.textContent = `Load more (showing ${displayedCount} of ${totalFound})`;
+      solveLoadMore.hidden = false;
+    }
     solveStatus.textContent = `Done. ${data.total_found} total matches.`;
     solveStart.hidden = false;
     solveStop.hidden = true;
@@ -231,8 +249,38 @@ export function acceptSolution() {
   r.solveFullText = null;
 }
 
+async function loadMore() {
+  if (!currentSolveId) return;
+  solveLoadMore.disabled = true;
+  solveLoadMore.textContent = "Loading...";
+
+  try {
+    const resp = await fetch(
+      `/api/solve/${currentSolveId}/results?offset=${displayedCount}&limit=200`
+    );
+    if (!resp.ok) throw new Error("Failed to load results");
+    const data = await resp.json();
+
+    const redactionId = state.activeRedaction;
+    for (const item of data.results) {
+      handleSolveEvent({ status: "match", ...item }, redactionId);
+    }
+
+    if (displayedCount >= totalFound) {
+      solveLoadMore.hidden = true;
+    } else {
+      solveLoadMore.textContent = `Load more (showing ${displayedCount} of ${totalFound})`;
+      solveLoadMore.disabled = false;
+    }
+  } catch (err) {
+    solveLoadMore.textContent = "Error loading — click to retry";
+    solveLoadMore.disabled = false;
+  }
+}
+
 /** Set up solver button listeners. Call once from main.js. */
 export function initSolver() {
   solveStart.addEventListener("click", startSolve);
   solveStop.addEventListener("click", stopSolve);
+  solveLoadMore.addEventListener("click", loadMore);
 }

@@ -38,6 +38,7 @@ export const solveStop = document.getElementById("solve-stop");
 export const solveAccept = document.getElementById("solve-accept");
 export const solveStatus = document.getElementById("solve-status");
 export const solveResults = document.getElementById("solve-results");
+export const solveLoadMore = /** @type {HTMLButtonElement} */ (document.getElementById("solve-load-more"));
 export const fontToolbar = document.getElementById("font-toolbar");
 export const fontSelect = /** @type {HTMLSelectElement} */ (document.getElementById("font-select"));
 export const sizeSlider = /** @type {HTMLInputElement} */ (document.getElementById("size-slider"));
