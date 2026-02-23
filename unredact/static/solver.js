@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import {
   solveCharset, solveTolerance, solveMode, solveFilter,
-  solveKnownStart, solveKnownEnd, solvePlural,
+  solveKnownStart, solveKnownEnd, solvePlural, solveVocab,
   solveResults, solveStatus, solveStart, solveStop,
   solveAccept, redactionMarker, escapeHtml,
 } from './dom.js';
@@ -52,6 +52,7 @@ export function startSolve() {
     known_start: solveKnownStart.value,
     known_end: solveKnownEnd.value,
     ensure_plural: solvePlural.checked,
+    vocab_size: parseInt(solveVocab.value) || 0,
   };
 
   const abortController = new AbortController();
@@ -145,8 +146,21 @@ function handleSolveEvent(data, redactionId) {
     div.addEventListener("click", () => {
       const r = state.redactions[redactionId];
       if (!r) return;
-      r.preview = data.text;
-      redactionMarker.value = data.text;
+
+      // Strip known start/end from preview — those are already visible
+      let previewText = data.text;
+      const ks = solveKnownStart.value;
+      const ke = solveKnownEnd.value;
+      if (ks && previewText.toLowerCase().startsWith(ks.toLowerCase())) {
+        previewText = previewText.slice(ks.length);
+      }
+      if (ke && previewText.toLowerCase().endsWith(ke.toLowerCase())) {
+        previewText = previewText.slice(0, -ke.length);
+      }
+
+      r.preview = previewText;
+      r.solveFullText = data.text;
+      redactionMarker.value = previewText;
       redactionMarker.className = "redaction-marker preview";
       renderCanvas();
       solveResults.querySelectorAll(".solve-result").forEach(el => el.classList.remove("active"));
@@ -208,12 +222,13 @@ export function acceptSolution() {
   r.status = "approved";
   const solFontName = state.fonts.find(f => f.id === (o.fontId || r.analysis.font.id))?.name || r.analysis.font.name;
   r.solution = {
-    text: r.preview,
+    text: r.solveFullText || r.preview,
     fontName: solFontName,
     fontSize: o.fontSize || r.analysis.font.size,
   };
   r.approvedText = leftText + r.preview + rightText;
   r.preview = null;
+  r.solveFullText = null;
 }
 
 /** Set up solver button listeners. Call once from main.js. */

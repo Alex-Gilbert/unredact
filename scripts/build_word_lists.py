@@ -5,10 +5,11 @@ Usage:
 
 Extracts nouns and adjectives from WordNet, generates plural forms using
 irregular mappings from Wiktionary/GitHub and standard English rules, then
-writes three files to unredact/data/:
-  - nouns.txt          (singular nouns, one per line)
-  - nouns_plural.txt   (corresponding plural for each noun)
-  - adjectives.txt     (adjectives, one per line)
+sorts all lists by word frequency (Google Books corpus) and writes three
+files to unredact/data/:
+  - nouns.txt          (singular nouns, sorted by frequency)
+  - nouns_plural.txt   (corresponding plural for each noun, same order)
+  - adjectives.txt     (adjectives, sorted by frequency)
 """
 
 import argparse
@@ -25,6 +26,9 @@ OUTPUT_DIR = Path(__file__).parent.parent / "unredact" / "data"
 
 IRREGULAR_PLURALS_URL = (
     "https://raw.githubusercontent.com/djstrong/nouns-with-plurals/master/noun.csv"
+)
+FREQUENCY_URL = (
+    "https://raw.githubusercontent.com/hackerb9/gwordlist/master/frequency-alpha-alldicts.txt"
 )
 
 # Regex: only lowercase alpha, no digits/hyphens/underscores/spaces
@@ -102,8 +106,43 @@ def generate_plurals(nouns: list[str], irregulars: dict[str, str]) -> list[str]:
     return plurals
 
 
+def download_frequency_ranks() -> dict[str, int]:
+    """Download word frequency rankings from Google Books corpus.
+
+    Returns: {word: rank} dict where rank 1 = most common.
+    """
+    print(f"Downloading frequency data from hackerb9/gwordlist...")
+    try:
+        response = urllib.request.urlopen(FREQUENCY_URL)
+    except (urllib.error.URLError, OSError) as exc:
+        print(f"  WARNING: failed to download frequency data: {exc}")
+        print("  Words will be sorted alphabetically instead.")
+        return {}
+    text = response.read().decode("utf-8")
+
+    ranks: dict[str, int] = {}
+    for line in text.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) >= 2:
+            rank = int(parts[0])
+            word = parts[1].lower()
+            if word not in ranks:
+                ranks[word] = rank
+
+    print(f"  -> loaded {len(ranks)} word frequency rankings")
+    return ranks
+
+
+def sort_by_frequency(words: list[str], freq_ranks: dict[str, int]) -> list[str]:
+    """Sort words by frequency rank. Unranked words go to the end."""
+    max_rank = len(freq_ranks) + 1
+    return sorted(words, key=lambda w: freq_ranks.get(w, max_rank))
+
+
 def write_word_list(path: Path, words: list[str]) -> None:
-    """Write a sorted word list, one word per line."""
+    """Write a word list, one word per line."""
     path.write_text("\n".join(words) + "\n")
     print(f"Wrote {len(words)} words to {path}")
 
@@ -138,14 +177,32 @@ def main():
     # Download irregular plural mappings
     irregulars = download_irregular_plurals()
 
-    # Generate plurals
-    print("Generating plural forms...")
-    plurals = generate_plurals(nouns, irregulars)
+    # Download frequency data
+    freq_ranks = download_frequency_ranks()
+
+    # Sort by frequency (most common first)
+    if freq_ranks:
+        print("Sorting by frequency...")
+        nouns_sorted = sort_by_frequency(nouns, freq_ranks)
+        adjectives_sorted = sort_by_frequency(adjectives, freq_ranks)
+
+        # Build noun->plural mapping, then reorder plurals to match sorted nouns
+        noun_to_plural = dict(zip(nouns, generate_plurals(nouns, irregulars)))
+        plurals_sorted = [noun_to_plural[n] for n in nouns_sorted]
+
+        ranked_nouns = sum(1 for n in nouns_sorted if n in freq_ranks)
+        ranked_adj = sum(1 for a in adjectives_sorted if a in freq_ranks)
+        print(f"  -> {ranked_nouns}/{len(nouns_sorted)} nouns have frequency data")
+        print(f"  -> {ranked_adj}/{len(adjectives_sorted)} adjectives have frequency data")
+    else:
+        nouns_sorted = nouns
+        adjectives_sorted = adjectives
+        plurals_sorted = generate_plurals(nouns, irregulars)
 
     # Write output files
-    write_word_list(args.data_dir / "nouns.txt", nouns)
-    write_word_list(args.data_dir / "nouns_plural.txt", plurals)
-    write_word_list(args.data_dir / "adjectives.txt", adjectives)
+    write_word_list(args.data_dir / "nouns.txt", nouns_sorted)
+    write_word_list(args.data_dir / "nouns_plural.txt", plurals_sorted)
+    write_word_list(args.data_dir / "adjectives.txt", adjectives_sorted)
 
     print("Done.")
 

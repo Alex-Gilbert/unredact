@@ -287,6 +287,7 @@ class SolveRequest(BaseModel):
     known_start: str = ""
     known_end: str = ""
     ensure_plural: bool = False
+    vocab_size: int = 0  # 0 = no limit; >0 = use top N most common words
 
 
 def _build_rust_solve_payload(
@@ -443,6 +444,7 @@ async def solve(req: SolveRequest):
                     known_start=req.known_start,
                     known_end=req.known_end,
                     ensure_plural=req.ensure_plural,
+                    vocab_size=req.vocab_size,
                 ):
                     if _active_solves.get(solve_id):
                         break
