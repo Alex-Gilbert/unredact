@@ -317,3 +317,79 @@ def solve_word_dictionary(
         error = abs(width - target_width)
         if error <= tolerance:
             yield SolveResult(text=display, width=float(width), error=float(error))
+
+    # Phase 2: two-word search (word1 + " " + noun)
+    import bisect
+
+    from unredact.pipeline.word_filter import _get_adjectives
+
+    adjectives = _get_adjectives()
+
+    # Word1 pool: adjectives + nouns (deduplicated, sorted)
+    word1_set = set(adjectives) | set(nouns)
+    word1_list = sorted(word1_set)
+
+    # Word2 pool: nouns or plural nouns
+    word2_list = list(plurals if ensure_plural else nouns)
+
+    # Pre-measure word2 widths and sort
+    word2_measured: list[tuple[float, str, str]] = []
+    for w2 in word2_list:
+        display2 = _apply_casing(w2, casing)
+        w = font.getlength(display2)
+        word2_measured.append((w, display2, w2))
+
+    word2_measured.sort(key=lambda x: x[0])
+    word2_widths = [x[0] for x in word2_measured]
+
+    KERNING_MARGIN = 3.0
+
+    for w1 in word1_list:
+        if ks_lower and not w1.startswith(ks_lower):
+            continue
+
+        display1 = _apply_casing(w1, casing)
+
+        # Measure word1 + space width (with left context kerning)
+        w1_with_space = display1 + " "
+        if left_context:
+            w1_portion = (
+                font.getlength(left_context + w1_with_space)
+                - font.getlength(left_context)
+            )
+        else:
+            w1_portion = font.getlength(w1_with_space)
+
+        remaining = target_width - w1_portion
+        if remaining < 0:
+            continue
+
+        # Binary search for word2 candidates
+        lo = bisect.bisect_left(word2_widths, remaining - tolerance - KERNING_MARGIN)
+        hi = bisect.bisect_right(word2_widths, remaining + tolerance + KERNING_MARGIN)
+
+        for i in range(lo, hi):
+            _, display2, w2_raw = word2_measured[i]
+            if ke_lower and not w2_raw.endswith(ke_lower):
+                continue
+
+            phrase = display1 + " " + display2
+            if phrase in seen:
+                continue
+
+            # Verify exact combined width with full kerning context
+            if left_context or right_context:
+                full = left_context + phrase + right_context
+                full_len = font.getlength(full)
+                left_len = font.getlength(left_context) if left_context else 0.0
+                right_len = font.getlength(right_context) if right_context else 0.0
+                exact_width = full_len - left_len - right_len
+            else:
+                exact_width = font.getlength(phrase)
+
+            error = abs(exact_width - target_width)
+            if error <= tolerance:
+                seen.add(phrase)
+                yield SolveResult(
+                    text=phrase, width=float(exact_width), error=float(error)
+                )

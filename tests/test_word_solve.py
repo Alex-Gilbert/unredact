@@ -86,3 +86,67 @@ class TestSolveWordDictionarySingleWord:
         target = font.getlength("dog")
         gen = solve_word_dictionary(font, target, tolerance=0.5, casing="lowercase")
         assert isinstance(gen, types.GeneratorType)
+
+
+class TestSolveWordDictionaryTwoWord:
+    def test_finds_two_word_phrase(self):
+        font = _get_test_font()
+        target = font.getlength("large house")
+        results = list(solve_word_dictionary(
+            font, target, tolerance=1.0,
+            casing="lowercase", known_start="large",
+        ))
+        texts = [r.text for r in results]
+        assert "large house" in texts
+
+    def test_two_word_capitalized(self):
+        font = _get_test_font()
+        target = font.getlength("Large House")
+        results = list(solve_word_dictionary(
+            font, target, tolerance=1.0,
+            casing="capitalized", known_start="Large",
+        ))
+        texts = [r.text for r in results]
+        assert "Large House" in texts
+
+    def test_two_word_plural(self):
+        font = _get_test_font()
+        target = font.getlength("large houses")
+        results = list(solve_word_dictionary(
+            font, target, tolerance=1.0,
+            casing="lowercase", ensure_plural=True, known_start="large",
+        ))
+        texts = [r.text for r in results]
+        assert "large houses" in texts
+
+    def test_two_word_known_start(self):
+        font = _get_test_font()
+        target = font.getlength("large house")
+        results = list(solve_word_dictionary(
+            font, target, tolerance=1.0,
+            casing="lowercase", known_start="la",
+        ))
+        texts = [r.text for r in results]
+        assert "large house" in texts
+        assert all(t.lower().startswith("la") for t in texts)
+
+    def test_two_word_known_end(self):
+        font = _get_test_font()
+        target = font.getlength("large house")
+        results = list(solve_word_dictionary(
+            font, target, tolerance=1.0,
+            casing="lowercase", known_end="se",
+        ))
+        texts = [r.text for r in results]
+        assert "large house" in texts
+        assert all(t.lower().endswith("se") for t in texts)
+
+    def test_no_duplicates_across_phases(self):
+        font = _get_test_font()
+        target = font.getlength("dog")
+        results = list(solve_word_dictionary(
+            font, target, tolerance=1.0,
+            casing="lowercase",
+        ))
+        texts = [r.text for r in results]
+        assert len(texts) == len(set(texts))
