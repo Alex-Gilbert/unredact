@@ -1,4 +1,4 @@
-.PHONY: build build-solver run stop restart solver app logs status clean dev kill build-associates build-emails build-word-lists check-api-key
+.PHONY: build build-solver run debug stop restart solver app logs status clean dev kill build-associates build-emails build-word-lists check-api-key
 
 SOLVER_BIN  = solver_rs/target/release/unredact-solver
 SOLVER_PORT ?= 3100
@@ -120,6 +120,10 @@ kill:
 	@fuser -k $(APP_PORT)/tcp 2>/dev/null && echo "Killed port $(APP_PORT)" || echo "Port $(APP_PORT) free"
 	@fuser -k $(SOLVER_PORT)/tcp 2>/dev/null && echo "Killed port $(SOLVER_PORT)" || echo "Port $(SOLVER_PORT) free"
 	@rm -f $(PID_DIR)/solver.pid $(PID_DIR)/app.pid
+
+debug: export UNREDACT_DEBUG=1
+debug: run
+	@echo "Debug images will be saved to debug/font-match-*/"
 
 restart: stop run
 

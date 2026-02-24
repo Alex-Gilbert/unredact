@@ -1,3 +1,4 @@
+import heapq
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +15,9 @@ CANDIDATE_FONTS: list[str] = [
     "Arial",
     "Courier New",
     "Georgia",
+    "Verdana",
+    "Carlito",
+    "Trebuchet MS",
     "Liberation Serif",
     "Liberation Sans",
     "DejaVu Serif",
@@ -206,14 +210,17 @@ def align_text_to_page(
 def _full_search(
     line_h: int,
     scorer: Callable[[ImageFont.FreeTypeFont], float],
-) -> FontMatch | None:
+    top_n: int = 1,
+) -> list[FontMatch]:
     """Full search across all candidate fonts and sizes.
 
     Args:
         line_h: OCR line height in pixels (used to bound the size search).
         scorer: Callable that takes a PIL font and returns a score (0.0–1.0).
+        top_n: Number of top candidates to return.
     """
-    best: FontMatch | None = None
+    heap: list[tuple[float, int, FontMatch]] = []
+    counter = 0
 
     # Constrain size range using the OCR line height.
     # Pixel scoring has sharp peaks at the exact size, so we scan
@@ -233,16 +240,20 @@ def _full_search(
                 continue
 
             score = scorer(font)
+            match = FontMatch(
+                font_name=font_name,
+                font_path=font_path,
+                font_size=size,
+                score=score,
+            )
 
-            if best is None or score > best.score:
-                best = FontMatch(
-                    font_name=font_name,
-                    font_path=font_path,
-                    font_size=size,
-                    score=score,
-                )
+            if len(heap) < top_n:
+                heapq.heappush(heap, (score, counter, match))
+            elif score > heap[0][0]:
+                heapq.heapreplace(heap, (score, counter, match))
+            counter += 1
 
-    return best
+    return [m for (_, _, m) in sorted(heap, reverse=True)]
 
 
 def _fine_search(
@@ -280,10 +291,10 @@ def detect_font_for_line_from_crop(
     be 0,0 (crop-relative coordinates).
     """
     scorer = lambda font: _score_font_line_pixel(font, line, line_crop)
-    best = _full_search(line.h, scorer)
-    if best is None:
+    results = _full_search(line.h, scorer)
+    if not results:
         raise RuntimeError("No matching font found. Check system fonts.")
-    return _fine_search(best, scorer)
+    return _fine_search(results[0], scorer)
 
 
 def _filter_clean_chars(
@@ -433,10 +444,29 @@ def detect_font_masked(
     scorer = lambda font: _score_font_masked_pixel(
         font, char_runs, line.x, line.y, line_crop,
     )
-    best = _full_search(line.h, scorer)
-    if best is None:
+    from unredact.pipeline.font_debug import debug_enabled, get_debug_ctx, start_debug_session, next_line_idx, save_line_debug
+    top_n = 5 if debug_enabled() else 1
+
+    # Use median character height for size estimation — line.h can span
+    # multiple physical text lines, making the search range far too large.
+    char_heights = [c.h for c in clean_chars if c.text.strip()]
+    estimated_h = int(np.median(char_heights)) if char_heights else line.h
+    results = _full_search(estimated_h, scorer, top_n=top_n)
+    if not results:
         raise RuntimeError("No matching font found. Check system fonts.")
-    return _fine_search(best, scorer)
+    best = _fine_search(results[0], scorer)
+
+    if debug_enabled():
+        ctx = get_debug_ctx()
+        if ctx is None:
+            start_debug_session()
+            ctx = get_debug_ctx()
+        save_line_debug(
+            ctx["dir"], next_line_idx(), line_crop, results,
+            {"type": "masked", "char_runs": char_runs, "line_x": line.x, "line_y": line.y},
+        )
+
+    return best
 
 
 def detect_font_for_line(
@@ -478,15 +508,28 @@ def detect_font_for_line(
         except Exception:
             pass
 
-    # Full search
-    best = _full_search(line.h, scorer)
-    if best is None:
+    # Full search — use median char height for size estimation so that
+    # multi-line OCR blocks don't inflate the search range.
+    from unredact.pipeline.font_debug import debug_enabled, get_debug_ctx, next_line_idx, save_line_debug
+    top_n = 5 if debug_enabled() else 1
+    char_heights = [c.h for c in line.chars if c.text.strip()]
+    estimated_h = int(np.median(char_heights)) if char_heights else line.h
+    results = _full_search(estimated_h, scorer, top_n=top_n)
+    if not results:
         if prior is not None:
             return prior
         raise RuntimeError("No matching font found. Check system fonts.")
 
     # Fine-tune the full search winner
-    best = _fine_search(best, scorer)
+    best = _fine_search(results[0], scorer)
+
+    if debug_enabled():
+        ctx = get_debug_ctx()
+        if ctx is not None:
+            save_line_debug(
+                ctx["dir"], next_line_idx(), line_crop, results,
+                {"type": "line", "line": scoring_line},
+            )
 
     # If we have a prior and it's close enough, prefer it for consistency
     if prior is not None and prior_score >= best.score * (1.0 / PRIOR_BIAS):
@@ -507,6 +550,10 @@ def detect_fonts(
     consistent unless a line is clearly different (e.g. bold header
     vs regular body text).
     """
+    from unredact.pipeline.font_debug import debug_enabled, start_debug_session, end_debug_session
+    if debug_enabled():
+        start_debug_session()
+
     results: list[FontMatch] = []
     prior: FontMatch | None = None
 
@@ -514,6 +561,9 @@ def detect_fonts(
         match = detect_font_for_line(line, page_image, prior=prior)
         results.append(match)
         prior = match
+
+    if debug_enabled():
+        end_debug_session()
 
     return results
 

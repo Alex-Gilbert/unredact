@@ -62,8 +62,9 @@ def test_full_search_finds_correct_serif():
     line, crop = _make_line_and_crop("Times New Roman", 50, text)
 
     scorer = lambda font: _score_font_line_pixel(font, line, crop)
-    best = _full_search(line.h, scorer)
-    assert best is not None
+    results = _full_search(line.h, scorer)
+    assert results
+    best = results[0]
     assert "Times" in best.font_name or "Liberation Serif" in best.font_name, (
         f"Expected serif font, got {best.font_name}"
     )
@@ -78,8 +79,9 @@ def test_full_search_finds_correct_sans():
     line, crop = _make_line_and_crop("Arial", 44, text)
 
     scorer = lambda font: _score_font_line_pixel(font, line, crop)
-    best = _full_search(line.h, scorer)
-    assert best is not None
+    results = _full_search(line.h, scorer)
+    assert results
+    best = results[0]
     assert "Arial" in best.font_name or "Liberation Sans" in best.font_name, (
         f"Expected sans-serif font, got {best.font_name}"
     )

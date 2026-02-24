@@ -166,15 +166,19 @@ async def analyze_page(
         right_text = "".join(c.text for c in right_chars).strip()
 
         # 3e: Pixel alignment
+        # Use the actual char positions to center the crop on the text,
+        # not the full OCR line (which may span multiple physical lines).
         offset_x = 0.0
         offset_y = 0.0
 
-        if left_text:
+        if left_text and left_chars:
             pil_font = font.to_pil_font()
+            char_y = min(c.y for c in left_chars)
+            char_h = max(c.y + c.h for c in left_chars) - char_y
             text_region_x1 = max(0, line.x - 20)
             text_region_x2 = min(page_image.width, box.x + 20)
-            text_region_y1 = max(0, line.y - 10)
-            text_region_y2 = min(page_image.height, line.y + line.h + 10)
+            text_region_y1 = max(0, char_y - 10)
+            text_region_y2 = min(page_image.height, char_y + char_h + 10)
             text_crop = np.array(page_image.convert("L").crop(
                 (text_region_x1, text_region_y1, text_region_x2, text_region_y2)
             ))
@@ -254,16 +258,21 @@ async def analyze_spot_redaction(
     left_text = boundary.left_text
     right_text = boundary.right_text
 
-    # Pixel alignment
+    # Pixel alignment — use char positions to center the crop on the
+    # actual text, not the full OCR line (which may span multiple lines).
     offset_x = 0.0
     offset_y = 0.0
 
-    if left_text:
+    left_chars = [c for c in line.chars if c.x + c.w / 2 < box.x]
+
+    if left_text and left_chars:
         pil_font = font.to_pil_font()
+        char_y = min(c.y for c in left_chars)
+        char_h = max(c.y + c.h for c in left_chars) - char_y
         text_region_x1 = max(0, line.x - 20)
         text_region_x2 = min(page_image.width, box.x + 20)
-        text_region_y1 = max(0, line.y - 10)
-        text_region_y2 = min(page_image.height, line.y + line.h + 10)
+        text_region_y1 = max(0, char_y - 10)
+        text_region_y2 = min(page_image.height, char_y + char_h + 10)
         text_crop = await asyncio.to_thread(
             lambda: np.array(page_image.convert("L").crop(
                 (text_region_x1, text_region_y1, text_region_x2, text_region_y2)
