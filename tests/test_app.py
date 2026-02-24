@@ -446,7 +446,7 @@ async def test_cancel_clears_buffer():
 
 @pytest.mark.anyio
 async def test_validate_endpoint(monkeypatch):
-    """POST /api/solve/{id}/validate should return LLM-scored results."""
+    """POST /api/solve/{id}/validate should stream SSE with LLM-scored results."""
     from unredact.pipeline import llm_validate
 
     fake_id = "validate_test"
@@ -456,10 +456,15 @@ async def test_validate_endpoint(monkeypatch):
         {"text": "running", "width_px": 50.0, "error_px": 0.3, "source": "words"},
     ]
 
-    async def mock_validate(left, right, candidates):
-        return [95, 10, 5]
+    async def mock_score_batch(client, left, right, candidates):
+        scores = {"Smith": 95, "house": 10, "running": 5}
+        return [scores.get(c, 0) for c in candidates]
 
-    monkeypatch.setattr(llm_validate, "validate_candidates", mock_validate)
+    monkeypatch.setattr(llm_validate, "_score_batch", mock_score_batch)
+
+    # Mock _get_client since the endpoint imports it directly
+    from unredact.pipeline import llm_detect
+    monkeypatch.setattr(llm_detect, "_get_client", lambda: None)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -468,14 +473,26 @@ async def test_validate_endpoint(monkeypatch):
             "right_context": ", we are writing",
         })
         assert resp.status_code == 200
-        data = resp.json()
+
+        # Parse SSE events from response
+        events = []
+        for line in resp.text.split("\n"):
+            if line.startswith("data: "):
+                events.append(json.loads(line[6:]))
+
+        batch_events = [e for e in events if e.get("status") == "batch_done"]
+        assert len(batch_events) == 1  # 3 items fits in one batch
+        data = batch_events[0]
         assert len(data["results"]) == 3
-        assert data["total"] == 3
-        # Sorted by llm_score descending
-        assert data["results"][0]["text"] == "Smith"
-        assert data["results"][0]["llm_score"] == 95
-        assert data["results"][1]["llm_score"] == 10
-        assert data["results"][2]["llm_score"] == 5
+        # Results within a batch are unsorted (frontend sorts on insert)
+        scores = {r["text"]: r["llm_score"] for r in data["results"]}
+        assert scores["Smith"] == 95
+        assert scores["house"] == 10
+        assert scores["running"] == 5
+
+        done_event = [e for e in events if e.get("status") == "done"]
+        assert len(done_event) == 1
+        assert done_event[0]["total"] == 3
 
     _solve_results.pop(fake_id, None)
 

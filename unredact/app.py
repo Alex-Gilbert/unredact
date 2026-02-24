@@ -562,6 +562,7 @@ async def solve(req: SolveRequest):
             yield json.dumps({
                 "status": "done",
                 "total_found": len(found_texts),
+                "solve_id": solve_id,
             })
         finally:
             _active_solves.pop(solve_id, None)
@@ -595,24 +596,58 @@ async def validate_solve(solve_id: str, req: ValidateRequest):
     if solve_id not in _solve_results:
         return JSONResponse({"error": "solve not found"}, status_code=404)
 
-    from unredact.pipeline.llm_validate import validate_candidates
+    from unredact.pipeline.llm_validate import _score_batch, _BATCH_SIZE
 
-    buf = _solve_results[solve_id]
+    buf = list(_solve_results[solve_id])  # snapshot
     candidates = [r["text"] for r in buf]
+    total = len(candidates)
+    total_batches = (total + _BATCH_SIZE - 1) // _BATCH_SIZE
 
-    try:
-        scores = await validate_candidates(
-            req.left_context, req.right_context, candidates,
-        )
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    async def event_generator():
+        yield json.dumps({"status": "started", "total": total, "batches": total_batches})
 
-    scored = []
-    for i, result in enumerate(buf):
-        scored.append({**result, "llm_score": scores[i] if i < len(scores) else 0})
-    scored.sort(key=lambda x: x["llm_score"], reverse=True)
+        scored_so_far = 0
+        try:
+            from unredact.pipeline.llm_detect import _get_client
+            client = _get_client()
 
-    return {"results": scored, "total": len(scored)}
+            for batch_idx in range(total_batches):
+                start = batch_idx * _BATCH_SIZE
+                end = min(start + _BATCH_SIZE, total)
+                batch = candidates[start:end]
+
+                yield json.dumps({
+                    "status": "scoring",
+                    "batch": batch_idx + 1,
+                    "batches": total_batches,
+                    "scored": scored_so_far,
+                    "total": total,
+                })
+
+                batch_scores = await _score_batch(
+                    client, req.left_context, req.right_context, batch,
+                )
+
+                # Stream this batch's scored results immediately
+                batch_results = []
+                for i, s in enumerate(batch_scores):
+                    result = {**buf[start + i], "llm_score": s}
+                    batch_results.append(result)
+
+                scored_so_far += len(batch_results)
+                yield json.dumps({
+                    "status": "batch_done",
+                    "results": batch_results,
+                    "scored": scored_so_far,
+                    "total": total,
+                })
+        except Exception as e:
+            yield json.dumps({"status": "error", "error": str(e)})
+            return
+
+        yield json.dumps({"status": "done", "scored": scored_so_far, "total": total})
+
+    return EventSourceResponse(event_generator())
 
 
 @app.delete("/api/solve/{solve_id}")

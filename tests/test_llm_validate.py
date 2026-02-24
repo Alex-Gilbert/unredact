@@ -18,7 +18,7 @@ class TestBuildValidationPrompt:
         assert "1. Smith" in prompt
         assert "2. house" in prompt
         assert "3. running" in prompt
-        assert "[REDACTED]" in prompt
+        assert "_____" in prompt
 
     def test_empty_context(self):
         prompt = build_validation_prompt(

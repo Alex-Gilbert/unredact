@@ -206,6 +206,7 @@ function handleSolveEvent(data, redactionId) {
     solveStatus.textContent = `Found ${displayedCount} matches, searching for more...`;
   } else if (data.status === "done") {
     totalFound = data.total_found;
+    if (data.solve_id) currentSolveId = data.solve_id;
     if (totalFound > displayedCount) {
       solveLoadMore.textContent = `Load more (showing ${displayedCount} of ${totalFound})`;
       solveLoadMore.hidden = false;
@@ -305,7 +306,14 @@ async function runValidation() {
   if (!currentSolveId) return;
   validateRun.disabled = true;
   validateRun.textContent = "Validating...";
-  solveStatus.textContent = `Validating ${totalFound} results...`;
+  solveStatus.textContent = "Starting validation...";
+
+  // Clear existing results for fresh scored list
+  solveResults.innerHTML = "";
+  displayedCount = 0;
+  solveLoadMore.hidden = true;
+
+  const redactionId = state.activeRedaction;
 
   try {
     const resp = await fetch(`/api/solve/${currentSolveId}/validate`, {
@@ -316,21 +324,44 @@ async function runValidation() {
         right_context: validateRight.value,
       }),
     });
-    if (!resp.ok) throw new Error("Validation failed");
-    const data = await resp.json();
-
-    // Replace results with scored list
-    solveResults.innerHTML = "";
-    displayedCount = 0;
-    solveLoadMore.hidden = true;
-
-    const redactionId = state.activeRedaction;
-    for (const item of data.results) {
-      renderScoredResult(item, redactionId);
+    if (!resp.ok) {
+      const errBody = await resp.json().catch(() => ({}));
+      throw new Error(errBody.error || `Validation failed (${resp.status})`);
     }
 
-    solveStatus.textContent = `Validated. ${data.total} results scored.`;
-    validatePanel.hidden = true;
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        let data;
+        try { data = JSON.parse(line.slice(6)); } catch { continue; }
+
+        if (data.status === "started") {
+          solveStatus.textContent = `Validating ${data.total} results (${data.batches} batches)...`;
+        } else if (data.status === "scoring") {
+          solveStatus.textContent = `Scoring batch ${data.batch}/${data.batches} (${data.scored}/${data.total} scored)...`;
+        } else if (data.status === "batch_done") {
+          for (const item of data.results) {
+            renderScoredResult(item, redactionId);
+          }
+          solveStatus.textContent = `Scored ${data.scored}/${data.total}...`;
+        } else if (data.status === "error") {
+          throw new Error(data.error);
+        } else if (data.status === "done") {
+          solveStatus.textContent = `Validated. ${data.total} results scored.`;
+          validatePanel.hidden = true;
+        }
+      }
+    }
   } catch (err) {
     solveStatus.textContent = "Validation error: " + err.message;
   } finally {
@@ -339,27 +370,69 @@ async function runValidation() {
   }
 }
 
-function renderScoredResult(data, redactionId) {
-  handleSolveEvent({ status: "match", ...data }, redactionId);
+/**
+ * Render a single scored result, inserting in descending score order.
+ */
+function renderScoredResult(item, redactionId) {
+  const score = item.llm_score ?? 0;
 
-  if (data.llm_score !== undefined) {
-    const results = solveResults.children;
-    for (const el of results) {
-      const textEl = el.querySelector(".result-text");
-      if (textEl && textEl.textContent === data.text && !el.querySelector(".llm-score")) {
-        const badge = document.createElement("span");
-        badge.className = "llm-score";
-        const score = data.llm_score;
-        if (score >= 70) badge.classList.add("score-high");
-        else if (score >= 30) badge.classList.add("score-mid");
-        else badge.classList.add("score-low");
-        badge.textContent = String(score);
-        badge.title = "LLM contextual fit score";
-        el.prepend(badge);
-        break;
-      }
+  const div = document.createElement("div");
+  div.className = "solve-result";
+  div.dataset.llmScore = String(score);
+
+  // Score badge
+  const badge = document.createElement("span");
+  badge.className = "llm-score";
+  if (score >= 70) badge.classList.add("score-high");
+  else if (score >= 30) badge.classList.add("score-mid");
+  else badge.classList.add("score-low");
+  badge.textContent = String(score);
+  badge.title = "LLM contextual fit score";
+
+  div.innerHTML = `
+    <span class="result-text">${escapeHtml(item.text)}</span>
+    <span class="result-error">${item.error_px.toFixed(1)}px ${item.source || ""}</span>
+  `;
+  div.prepend(badge);
+
+  // Click to preview
+  div.addEventListener("click", () => {
+    const r = state.redactions[redactionId];
+    if (!r) return;
+
+    let previewText = item.text;
+    const ks = solveKnownStart.value;
+    const ke = solveKnownEnd.value;
+    if (ks && previewText.toLowerCase().startsWith(ks.toLowerCase())) {
+      previewText = previewText.slice(ks.length);
+    }
+    if (ke && previewText.toLowerCase().endsWith(ke.toLowerCase())) {
+      previewText = previewText.slice(0, -ke.length);
+    }
+
+    r.preview = previewText;
+    r.solveFullText = item.text;
+    redactionMarker.value = previewText;
+    redactionMarker.className = "redaction-marker preview";
+    renderCanvas();
+    solveResults.querySelectorAll(".solve-result").forEach(el => el.classList.remove("active"));
+    div.classList.add("active");
+    solveAccept.hidden = false;
+  });
+
+  // Insert in sorted position (descending by score)
+  let inserted = false;
+  for (const existing of solveResults.children) {
+    const exScore = parseInt(/** @type {HTMLElement} */ (existing).dataset.llmScore || "0");
+    if (score > exScore) {
+      solveResults.insertBefore(div, existing);
+      inserted = true;
+      break;
     }
   }
+  if (!inserted) solveResults.appendChild(div);
+
+  displayedCount++;
 }
 
 /** Set up solver button listeners. Call once from main.js. */
