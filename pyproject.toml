@@ -1,7 +1,7 @@
 [project]
 name = "unredact"
 version = "0.1.0"
-description = "AI-powered redaction analysis for Epstein case files"
+description = "AI-powered redacted PDF analysis using computer vision, constraint solving, and LLM reasoning"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
