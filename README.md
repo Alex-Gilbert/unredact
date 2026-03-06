@@ -185,6 +185,14 @@ make build-word-lists # Rebuild noun/adjective dictionaries from WordNet
 make test
 ```
 
+## Disclaimer
+
+Unredact is a research and entertainment tool. It is provided as-is for educational and exploratory purposes only. The results produced by this tool are probabilistic guesses — **nothing it outputs should be treated as verified fact.** All data used (dictionaries, font metrics, name lists) comes from publicly available, open-source sources, and AI-generated scores reflect statistical plausibility, not truth.
+
+This tool is not intended for use in legal proceedings, journalism, law enforcement, or any context where unverified information could cause harm. **Do not use this tool to circumvent lawful redactions, violate privacy, or break any applicable laws.** You are solely responsible for how you use it.
+
+The author makes no claims of accuracy, completeness, or fitness for any particular purpose, and accepts no liability for misuse or for any consequences arising from the use of this tool.
+
 ## License
 
 [MIT](LICENSE)
