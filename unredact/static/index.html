@@ -194,6 +194,15 @@
           <span id="api-key-status" class="api-key-status"></span>
           <p class="setting-hint">Your API key is stored locally in your browser and never sent to any server except Anthropic's API.</p>
         </div>
+        <div class="setting-group">
+            <label>Custom Fonts</label>
+            <p class="setting-hint">Upload .ttf or .otf font files for detection and rendering.</p>
+            <div class="font-upload-row">
+                <input type="file" id="font-upload-input" accept=".ttf,.otf,.woff,.woff2" hidden>
+                <button id="font-upload-btn" class="settings-action-btn">Upload Font</button>
+            </div>
+            <div id="user-font-list"></div>
+        </div>
       </div>
     </div>
   </div>

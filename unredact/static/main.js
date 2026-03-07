@@ -162,25 +162,43 @@ mobileQuery.addEventListener('change', handleLayoutChange);
 // ── Font loading ──
 
 async function loadFonts() {
-  const resp = await fetch("/api/fonts");
+  // Load font manifest
+  const resp = await fetch("fonts/manifest.json");
   const data = await resp.json();
-  state.fonts = data.fonts;
 
-  const promises = state.fonts
-    .filter((f) => f.available)
-    .map(async (f) => {
-      const face = new FontFace(f.name, `url(/api/font/${f.id})`);
-      try {
-        const loaded = await face.load();
-        document.fonts.add(loaded);
-      } catch (e) {
-        console.warn(`Failed to load font ${f.name}:`, e);
-      }
-    });
+  // Check which system fonts are available by attempting to measure text
+  // with them vs. a fallback. If the width differs, the font is present.
+  const testCanvas = new OffscreenCanvas(1, 1);
+  const testCtx = testCanvas.getContext('2d');
+  const fallbackFont = 'serif';
+  const testString = 'mmmmmmmmmmlli';
 
-  await Promise.all(promises);
+  testCtx.font = `72px ${fallbackFont}`;
+  const fallbackWidth = testCtx.measureText(testString).width;
+
+  state.fonts = data.fonts.map(f => {
+    testCtx.font = `72px "${f.name}", ${fallbackFont}`;
+    const width = testCtx.measureText(testString).width;
+    return { ...f, available: width !== fallbackWidth };
+  });
+
+  // Load user-uploaded fonts from IndexedDB
+  const { getUserFonts } = await import('./db.js');
+  const userFonts = await getUserFonts();
+  for (const uf of userFonts) {
+    const face = new FontFace(uf.name, await uf.blob.arrayBuffer());
+    try {
+      const loaded = await face.load();
+      document.fonts.add(loaded);
+      state.fonts.push({ id: uf.fontId, name: uf.name, available: true, source: 'user' });
+    } catch (e) {
+      console.warn(`Failed to load user font ${uf.name}:`, e);
+    }
+  }
+
   state.fontsReady = true;
 
+  // Populate font select dropdown
   fontSelect.innerHTML = "";
   for (const f of state.fonts.filter(f => f.available)) {
     const opt = document.createElement("option");

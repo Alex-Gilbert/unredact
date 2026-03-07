@@ -1,0 +1,15 @@
+{
+  "fonts": [
+    { "id": "times-new-roman", "name": "Times New Roman" },
+    { "id": "arial", "name": "Arial" },
+    { "id": "courier-new", "name": "Courier New" },
+    { "id": "georgia", "name": "Georgia" },
+    { "id": "verdana", "name": "Verdana" },
+    { "id": "calibri", "name": "Calibri" },
+    { "id": "trebuchet-ms", "name": "Trebuchet MS" },
+    { "id": "liberation-serif", "name": "Liberation Serif" },
+    { "id": "liberation-sans", "name": "Liberation Sans" },
+    { "id": "dejavu-serif", "name": "DejaVu Serif" },
+    { "id": "dejavu-sans", "name": "DejaVu Sans" }
+  ]
+}

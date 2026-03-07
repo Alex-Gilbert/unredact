@@ -1146,4 +1146,12 @@ main {
   opacity: 0.6;
   margin-top: 0.5rem;
 }
+.font-upload-row {
+    margin-top: 0.5rem;
+}
+.user-font-item {
+    font-size: 0.85rem;
+    padding: 0.2rem 0;
+    opacity: 0.8;
+}
 
