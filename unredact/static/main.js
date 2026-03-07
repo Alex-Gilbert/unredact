@@ -14,7 +14,7 @@ import { openPopover, closePopover, setOnPopoverClose, updatePosDisplay, initPop
 import { stopSolve, acceptSolution, initSolver } from './solver.js';
 import { initSettings } from './settings.js';
 import { loadPdf, renderPage } from './pdf.js';
-import { initOcr, ocrPage } from './ocr.js';
+import { initOcr, ocrPage, cropImageData, maskBoxRGBA } from './ocr.js';
 import { initWasm, detectRedactions, spotRedaction } from './wasm.js';
 import { detectFontMasked, detectFontMarquee, cropToGrayscale } from './font_detect.js';
 import { identifyBoundaryText } from './llm.js';
@@ -506,25 +506,27 @@ canvas.addEventListener("dblclick", async (e) => {
     const cropY = Math.round(marquee.y);
     const cropW = Math.min(Math.round(marquee.w), imageData.width - cropX);
     const cropH = Math.min(Math.round(marquee.h), imageData.height - cropY);
-    const cropGray = cropToGrayscale(imageData, cropX, cropY, cropW, cropH);
 
+    // OCR the marquee crop with the redaction box masked out
+    showToast("Running OCR on selection...", "info");
+    const ocrCrop = cropImageData(imageData, cropX, cropY, cropW, cropH);
     const relBox = {
       x: box.x - cropX,
       y: box.y - cropY,
       w: box.w,
       h: box.h,
     };
+    maskBoxRGBA(ocrCrop, relBox.x, relBox.y, relBox.w, relBox.h);
+    const ocrLines = await ocrPage(ocrCrop);
 
-    // Split OCR text into left/right of the redaction box
-    const ocrLines = (state.ocrData?.[page]) || [];
+    // Split OCR chars into left/right of the redaction box (crop-relative coords)
     let leftText = '';
     let rightText = '';
-
     let bestLine = null;
     let bestOverlap = 0;
     for (const line of ocrLines) {
       const overlap = Math.max(0,
-        Math.min(box.y + box.h, line.y + line.h) - Math.max(box.y, line.y)
+        Math.min(relBox.y + relBox.h, line.y + line.h) - Math.max(relBox.y, line.y)
       );
       if (overlap > bestOverlap) {
         bestOverlap = overlap;
@@ -533,27 +535,19 @@ canvas.addEventListener("dblclick", async (e) => {
     }
 
     if (bestLine?.chars) {
-      const leftChars = bestLine.chars.filter(c => c.x + c.w / 2 < box.x);
-      const rightChars = bestLine.chars.filter(c => c.x + c.w / 2 > box.x + box.w);
+      const leftChars = bestLine.chars.filter(c => c.x + c.w / 2 < relBox.x);
+      const rightChars = bestLine.chars.filter(c => c.x + c.w / 2 > relBox.x + relBox.w);
       leftText = leftChars.map(c => c.text).join('').trim();
       rightText = rightChars.map(c => c.text).join('').trim();
     }
 
-    const apiKey = await getSetting('anthropic_api_key');
-    if (apiKey && bestLine) {
-      try {
-        const boundary = await identifyBoundaryText(bestLine, box.x, box.w, apiKey);
-        leftText = boundary.leftText;
-        rightText = boundary.rightText;
-      } catch (_e) { /* keep OCR text */ }
-    }
-
-    // Use first OCR char's y as baseline hint (consistent for the whole line)
+    // Use first OCR char's y as baseline hint (already crop-relative)
     const firstChar = bestLine?.chars?.[0];
     const hint = firstChar
-      ? { x: firstChar.x - cropX, y: firstChar.y - cropY }
+      ? { x: firstChar.x, y: firstChar.y }
       : undefined;
 
+    const cropGray = cropToGrayscale(imageData, cropX, cropY, cropW, cropH);
     const candidates = state.fonts.filter(f => f.available).map(f => f.name);
     showToast("Detecting font...", "info");
     const match = detectFontMarquee(cropGray, cropW, cropH, relBox, leftText, rightText, candidates, hint);
@@ -562,18 +556,27 @@ canvas.addEventListener("dblclick", async (e) => {
       || match.fontName.toLowerCase().replace(/\s+/g, '-');
 
     const id = `p${page}-r${box.x}-${box.y}-${box.w}-${box.h}`;
+    // Convert crop-relative offsets to line-relative offsets.
+    // detectFontMarquee returns positions within the marquee crop, but
+    // drawRedactionAnalyzed renders at (line.x + offsetX, line.y + offsetY).
+    // OCR line coords are crop-relative, so add cropX/cropY to get document-absolute.
+    const lineX = bestLine ? bestLine.x + cropX : box.x;
+    const lineY = bestLine ? bestLine.y + cropY : box.y;
+    const offsetX = cropX + match.xOffset - lineX;
+    const offsetY = cropY + match.yOffset - lineY;
+
     const analysis = {
       font: { id: fontId, name: match.fontName, size: match.fontSize },
       gap: { x: box.x, y: box.y, w: box.w, h: box.h },
       line: bestLine
-        ? { text: bestLine.text, x: bestLine.x, y: bestLine.y, w: bestLine.w, h: bestLine.h }
+        ? { text: bestLine.text, x: bestLine.x + cropX, y: bestLine.y + cropY, w: bestLine.w, h: bestLine.h }
         : { text: '', x: box.x, y: box.y, w: box.w, h: box.h },
       segments: [
         { text: leftText, side: 'left' },
         { text: rightText, side: 'right' },
       ],
-      offset_x: match.xOffset,
-      offset_y: match.yOffset,
+      offset_x: offsetX,
+      offset_y: offsetY,
     };
 
     state.redactions[id] = {
@@ -587,8 +590,8 @@ canvas.addEventListener("dblclick", async (e) => {
       overrides: {
         fontId,
         fontSize: match.fontSize,
-        offsetX: match.xOffset,
-        offsetY: match.yOffset,
+        offsetX,
+        offsetY,
         gapWidth: box.w,
         leftText,
         rightText,
