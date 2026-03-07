@@ -140,6 +140,10 @@ function renderSegmentsGray(leftText, rightText, gapWidth, fontName, fontSize, x
  * @returns {Uint8Array}
  */
 export function cropToGrayscale(imageData, x, y, w, h) {
+    x = Math.max(0, x);
+    y = Math.max(0, y);
+    w = Math.min(w, imageData.width - x);
+    h = Math.min(h, imageData.height - y);
     const gray = new Uint8Array(w * h);
     const fullW = imageData.width;
     const rgba = imageData.data;

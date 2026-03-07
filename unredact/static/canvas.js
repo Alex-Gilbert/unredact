@@ -3,6 +3,8 @@
 
 import { state, getPageRedactions } from './state.js';
 import { canvas, ctx, docImage, rightPanel } from './dom.js';
+// NOTE: circular import — canvas.js ↔ marquee.js. Safe because both modules
+// only access each other's exports inside function bodies, never at top level.
 import { marquee, updateAnalyzeButtonPos } from './marquee.js';
 
 /**

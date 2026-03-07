@@ -4,6 +4,8 @@
 import { state } from './state.js';
 import { rightPanel, canvas } from './dom.js';
 import { screenToDoc } from './viewport.js';
+// NOTE: circular import — marquee.js ↔ canvas.js. Safe because both modules
+// only access each other's exports inside function bodies, never at top level.
 import { renderCanvas } from './canvas.js';
 
 /**

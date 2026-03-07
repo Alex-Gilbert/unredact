@@ -112,7 +112,7 @@ function overlapCanvas(pageGray, renderedGray, w, h) {
  * @param {Uint8Array} pageGray - page crop grayscale
  * @param {number} w
  * @param {number} h
- * @param {Array<{fontName: string, fontSize: number, score: number, rendered: Uint8Array}>} candidates
+ * @param {Array<{fontName: string, fontSize: number, score: number, rendered: Uint8Array, xOffset?: number, yOffset?: number}>} candidates
  */
 export function showDebug(pageGray, w, h, candidates) {
     const panel = getPanel();
