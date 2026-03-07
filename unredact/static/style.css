@@ -63,6 +63,63 @@ main {
   overflow: hidden;
 }
 
+/* Document list */
+#doc-list h3 {
+    margin: 0 0 0.5rem;
+    font-size: 0.95rem;
+    opacity: 0.8;
+}
+.doc-list-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #333;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+    background: #1e1e2e;
+}
+.doc-info {
+    flex: 1;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.doc-date {
+    font-size: 0.75rem;
+    opacity: 0.5;
+}
+.doc-resume-btn {
+    padding: 0.3rem 0.6rem;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #3a3a5e;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+.doc-resume-btn:hover {
+    background: #4a4a6e;
+}
+.doc-delete-btn {
+    background: none;
+    border: none;
+    color: inherit;
+    opacity: 0.5;
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 0 0.3rem;
+}
+.doc-delete-btn:hover {
+    opacity: 1;
+    color: #ef5350;
+}
+#doc-list {
+    max-width: 600px;
+    margin: 0 auto 1rem;
+}
+
 #drop-zone {
   border: 2px dashed var(--border);
   border-radius: 12px;
