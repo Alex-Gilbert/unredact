@@ -8,15 +8,9 @@ import { scoreFont } from './wasm.js';
  * Users can add more via font upload.
  */
 const DEFAULT_CANDIDATES = [
-    'Times New Roman',
-    'Arial',
-    'Courier New',
-    'Georgia',
-    'Verdana',
-    'Calibri',
-    'Trebuchet MS',
     'Liberation Serif',
     'Liberation Sans',
+    'Liberation Mono',
     'DejaVu Serif',
     'DejaVu Sans',
 ];

@@ -10,7 +10,7 @@ let worker = null;
  */
 export async function initOcr() {
     if (worker) return;
-    const Tesseract = await import('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js');
+    const { default: Tesseract } = await import('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js');
     worker = await Tesseract.createWorker('eng', 1, {
         // logger: m => console.log(m), // uncomment for debug
     });

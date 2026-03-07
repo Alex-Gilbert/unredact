@@ -23,8 +23,9 @@ cp unredact/static/*.css dist/
 cp unredact/data/*.txt dist/data/
 cp unredact/data/*.json dist/data/
 
-# Copy font manifest
+# Copy fonts (manifest + WOFF2 bundles)
 cp unredact/static/fonts/manifest.json dist/fonts/
+cp unredact/static/fonts/*.woff2 dist/fonts/
 
 echo "Build complete. Output in dist/"
 echo "  WASM: $(du -sh dist/pkg/unredact_core_bg.wasm | cut -f1)"

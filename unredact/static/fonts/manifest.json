@@ -1,15 +1,9 @@
 {
   "fonts": [
-    { "id": "times-new-roman", "name": "Times New Roman" },
-    { "id": "arial", "name": "Arial" },
-    { "id": "courier-new", "name": "Courier New" },
-    { "id": "georgia", "name": "Georgia" },
-    { "id": "verdana", "name": "Verdana" },
-    { "id": "calibri", "name": "Calibri" },
-    { "id": "trebuchet-ms", "name": "Trebuchet MS" },
-    { "id": "liberation-serif", "name": "Liberation Serif" },
-    { "id": "liberation-sans", "name": "Liberation Sans" },
-    { "id": "dejavu-serif", "name": "DejaVu Serif" },
-    { "id": "dejavu-sans", "name": "DejaVu Sans" }
+    { "id": "liberation-serif", "name": "Liberation Serif", "file": "LiberationSerif-Regular.woff2", "equivalent": "Times New Roman" },
+    { "id": "liberation-sans", "name": "Liberation Sans", "file": "LiberationSans-Regular.woff2", "equivalent": "Arial" },
+    { "id": "liberation-mono", "name": "Liberation Mono", "file": "LiberationMono-Regular.woff2", "equivalent": "Courier New" },
+    { "id": "dejavu-serif", "name": "DejaVu Serif", "file": "DejaVuSerif.woff2" },
+    { "id": "dejavu-sans", "name": "DejaVu Sans", "file": "DejaVuSans.woff2" }
   ]
 }

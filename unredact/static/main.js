@@ -168,25 +168,23 @@ mobileQuery.addEventListener('change', handleLayoutChange);
 // ── Font loading ──
 
 async function loadFonts() {
-  // Load font manifest
+  // Load bundled font manifest and register each WOFF2 via FontFace
   const resp = await fetch("/fonts/manifest.json");
   const data = await resp.json();
 
-  // Check which system fonts are available by attempting to measure text
-  // with them vs. a fallback. If the width differs, the font is present.
-  const testCanvas = new OffscreenCanvas(1, 1);
-  const testCtx = testCanvas.getContext('2d');
-  const fallbackFont = 'serif';
-  const testString = 'mmmmmmmmmmlli';
-
-  testCtx.font = `72px ${fallbackFont}`;
-  const fallbackWidth = testCtx.measureText(testString).width;
-
-  state.fonts = data.fonts.map(f => {
-    testCtx.font = `72px "${f.name}", ${fallbackFont}`;
-    const width = testCtx.measureText(testString).width;
-    return { ...f, available: width !== fallbackWidth };
+  state.fonts = [];
+  const loadPromises = data.fonts.map(async (f) => {
+    const face = new FontFace(f.name, `url(/fonts/${f.file})`);
+    try {
+      const loaded = await face.load();
+      document.fonts.add(loaded);
+      state.fonts.push({ ...f, available: true });
+    } catch (e) {
+      console.warn(`Failed to load font ${f.name}:`, e);
+      state.fonts.push({ ...f, available: false });
+    }
   });
+  await Promise.all(loadPromises);
 
   // Load user-uploaded fonts from IndexedDB
   const { getUserFonts } = await import('./db.js');
@@ -203,13 +201,15 @@ async function loadFonts() {
   }
 
   state.fontsReady = true;
+  refreshFontSelect();
+}
 
-  // Populate font select dropdown
+function refreshFontSelect() {
   fontSelect.innerHTML = "";
   for (const f of state.fonts.filter(f => f.available)) {
     const opt = document.createElement("option");
     opt.value = f.id;
-    opt.textContent = f.name;
+    opt.textContent = f.equivalent ? `${f.name} (≈ ${f.equivalent})` : f.name;
     fontSelect.appendChild(opt);
   }
 }
@@ -293,10 +293,10 @@ async function runAnalysis() {
       if (!state.pageImages[page]) {
         const result = await renderPage(state.pdfDoc, page);
         const blobUrl = URL.createObjectURL(result.blob);
-        state.pageImages[page] = { imageData: result.imageData, blobUrl };
+        state.pageImages[page] = { imageData: result.imageData, blob: result.blob, blobUrl };
       }
       if (!state.ocrData[page]) {
-        state.ocrData[page] = await ocrPage(state.pageImages[page].imageData);
+        state.ocrData[page] = await ocrPage(state.pageImages[page].blob);
       }
 
       const imageData = state.pageImages[page].imageData;
@@ -443,10 +443,10 @@ async function runBackgroundOcr() {
       if (!state.pageImages[page]) {
         const result = await renderPage(state.pdfDoc, page);
         const blobUrl = URL.createObjectURL(result.blob);
-        state.pageImages[page] = { imageData: result.imageData, blobUrl };
+        state.pageImages[page] = { imageData: result.imageData, blob: result.blob, blobUrl };
       }
 
-      const lines = await ocrPage(state.pageImages[page].imageData);
+      const lines = await ocrPage(state.pageImages[page].blob);
       state.ocrData[page] = lines;
 
       // Persist OCR data to IndexedDB
@@ -484,7 +484,7 @@ async function loadPage(page) {
   if (!state.pageImages[page]) {
     const result = await renderPage(state.pdfDoc, page);
     const blobUrl = URL.createObjectURL(result.blob);
-    state.pageImages[page] = { imageData: result.imageData, blobUrl };
+    state.pageImages[page] = { imageData: result.imageData, blob: result.blob, blobUrl };
   }
 
   docImage.src = state.pageImages[page].blobUrl;
@@ -1019,6 +1019,15 @@ initSolver();
 initSheetTabs();
 initSheetDrag();
 handleLayoutChange();
-initSettings();
+initSettings({
+  onFontAdded(font) {
+    state.fonts.push({ ...font, available: true, source: 'user' });
+    refreshFontSelect();
+  },
+  onFontRemoved(fontId) {
+    state.fonts = state.fonts.filter(f => f.id !== fontId);
+    refreshFontSelect();
+  },
+});
 
 init();
