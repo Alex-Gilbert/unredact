@@ -2,7 +2,8 @@
 /** Canvas rendering — draws redaction overlays on the document image. */
 
 import { state, getPageRedactions } from './state.js';
-import { canvas, ctx, docImage } from './dom.js';
+import { canvas, ctx, docImage, rightPanel } from './dom.js';
+import { marquee, updateAnalyzeButtonPos } from './marquee.js';
 
 /**
  * Parse text with **bold** markers into styled segments.
@@ -115,6 +116,45 @@ export function renderCanvas() {
     if (r.id === state.activeRedaction) {
       drawResizeHandles(r);
     }
+  }
+
+  // Draw marquee selection
+  if (marquee.active) {
+    const m = marquee;
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = 'rgba(66, 133, 244, 0.9)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(m.x, m.y, m.w, m.h);
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = 'rgba(66, 133, 244, 0.08)';
+    ctx.fillRect(m.x, m.y, m.w, m.h);
+
+    // Resize handles
+    const sz = 6;
+    ctx.fillStyle = 'rgba(66, 133, 244, 0.9)';
+    ctx.fillRect(m.x - sz/2, m.y + m.h/2 - sz/2, sz, sz);
+    ctx.fillRect(m.x + m.w - sz/2, m.y + m.h/2 - sz/2, sz, sz);
+    ctx.fillRect(m.x + m.w/2 - sz/2, m.y - sz/2, sz, sz);
+    ctx.fillRect(m.x + m.w/2 - sz/2, m.y + m.h - sz/2, sz, sz);
+
+    // Detected redaction box
+    if (m.detectedBox) {
+      ctx.strokeStyle = 'rgba(211, 47, 47, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.strokeRect(m.detectedBox.x, m.detectedBox.y, m.detectedBox.w, m.detectedBox.h);
+    }
+
+    ctx.restore();
+
+    // Position analyze button in screen coords
+    const pw = rightPanel.clientWidth;
+    const ph = rightPanel.clientHeight;
+    const screenCX = (m.x + m.w / 2 - state.panX) * state.zoom + pw / 2;
+    const screenBY = (m.y + m.h - state.panY) * state.zoom + ph / 2;
+    updateAnalyzeButtonPos(screenCX, screenBY);
   }
 }
 
