@@ -89,7 +89,7 @@ export function closePopover() {
 export function updatePosDisplay() {
   const r = state.redactions[state.activeRedaction];
   if (!r?.overrides) return;
-  posDisplay.textContent = `${Math.round(r.overrides.offsetX)}, ${Math.round(r.overrides.offsetY)}`;
+  posDisplay.textContent = `${r.overrides.offsetX.toFixed(1)}, ${r.overrides.offsetY.toFixed(1)}`;
 }
 
 function adjustSize(delta) {

@@ -799,6 +799,8 @@ let modDrag = null;
 canvas.addEventListener("mousedown", (e) => {
   if ((!e.ctrlKey && !e.shiftKey) || e.button !== 0) return;
   const r = state.redactions[state.activeRedaction];
+  // Only handle Ctrl/Shift drag for active redactions with overrides.
+  // When no active redaction, let the event propagate so marquee can handle Shift+drag.
   if (!r?.overrides) return;
 
   modDrag = {
