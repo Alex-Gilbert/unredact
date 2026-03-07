@@ -468,11 +468,15 @@ export function detectFontMasked(pageImageData, line, redactionBoxes, candidates
  * @param {string} leftText - text to the left of the redaction
  * @param {string} rightText - text to the right of the redaction
  * @param {string[]} candidates - font family names to try
+ * @param {{ x: number, y: number }} [hint] - OCR-derived starting position (first char's crop-relative coords)
  * @returns {FontMatchResult}
  */
-export function detectFontMarquee(cropGray, cropW, cropH, box, leftText, rightText, candidates) {
+export function detectFontMarquee(cropGray, cropW, cropH, box, leftText, rightText, candidates, hint) {
+    const hintX = hint?.x ?? 0;
+    const hintY = hint?.y ?? 0;
+
     if (cropW <= 0 || cropH <= 0 || (!leftText.trim() && !rightText.trim())) {
-        return { fontName: candidates[0], fontSize: cropH * 0.8, xOffset: 0, yOffset: 0, score: 0 };
+        return { fontName: candidates[0], fontSize: cropH * 0.8, xOffset: hintX, yOffset: hintY, score: 0 };
     }
 
     // Mask the redaction box in the page crop
@@ -498,11 +502,11 @@ export function detectFontMarquee(cropGray, cropW, cropH, box, leftText, rightTe
             return scoreFont(maskedCrop, rendered, cropW, cropH);
         };
 
-        // Phase 1: Coarse scan on fontSize
+        // Phase 1: Coarse scan on fontSize (using OCR hint for position)
         let coarseBestSize = minSize;
         let coarseBestScore = -1;
         for (let size = minSize; size <= maxSize; size += 5) {
-            const s = evaluate(size, 0, 0);
+            const s = evaluate(size, hintX, hintY);
             if (s > coarseBestScore) {
                 coarseBestScore = s;
                 coarseBestSize = size;
@@ -511,24 +515,24 @@ export function detectFontMarquee(cropGray, cropW, cropH, box, leftText, rightTe
 
         // Phase 2: Golden-section on fontSize (0.1px precision)
         const sizeResult = goldenSection(
-            size => evaluate(size, 0, 0),
+            size => evaluate(size, hintX, hintY),
             Math.max(minSize, coarseBestSize - 5),
             Math.min(maxSize, coarseBestSize + 5),
             0.1
         );
         const optSize = sizeResult.x;
 
-        // Phase 3: Golden-section on y-offset
+        // Phase 3: Golden-section on y-offset (±3px around OCR hint)
         const yResult = goldenSection(
-            y => evaluate(optSize, 0, y),
-            -5, 5, 0.1
+            y => evaluate(optSize, hintX, y),
+            hintY - 3, hintY + 3, 0.1
         );
         const optY = yResult.x;
 
-        // Phase 4: Golden-section on x-offset
+        // Phase 4: Golden-section on x-offset (±3px around OCR hint)
         const xResult = goldenSection(
             x => evaluate(optSize, x, optY),
-            -5, 5, 0.1
+            hintX - 3, hintX + 3, 0.1
         );
         const optX = xResult.x;
 
