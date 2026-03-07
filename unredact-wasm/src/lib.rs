@@ -37,3 +37,40 @@ pub fn find_redaction_in_region(
         image::find_redaction_in_region(pixels, width, height, x1, y1, x2, y2, padding);
     serde_wasm_bindgen::to_value(&rect).unwrap()
 }
+
+#[wasm_bindgen]
+pub fn score_font(
+    page_pixels: &[u8],
+    rendered_pixels: &[u8],
+    width: u32,
+    height: u32,
+) -> f64 {
+    font::pixel_match::best_dice_score(page_pixels, rendered_pixels, width, height, 3)
+}
+
+#[wasm_bindgen]
+pub fn score_font_no_shift(
+    page_pixels: &[u8],
+    rendered_pixels: &[u8],
+    width: u32,
+    height: u32,
+) -> f64 {
+    font::pixel_match::dice_score(page_pixels, rendered_pixels, width, height)
+}
+
+#[wasm_bindgen]
+pub fn align_text(
+    page_pixels: &[u8],
+    pw: u32,
+    ph: u32,
+    rendered_pixels: &[u8],
+    rw: u32,
+    rh: u32,
+    search_x: i32,
+    search_y: i32,
+) -> JsValue {
+    let (dx, dy) = font::align::align_text_to_page(
+        page_pixels, pw, ph, rendered_pixels, rw, rh, search_x, search_y,
+    );
+    serde_wasm_bindgen::to_value(&[dx, dy]).unwrap()
+}
