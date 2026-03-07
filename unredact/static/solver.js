@@ -13,6 +13,8 @@ import {
 import { renderCanvas } from './canvas.js';
 import { matchAssociates, tierBadgeClass, tierLabel, isVictimMatch, showAssocDetail } from './associates.js';
 import { solve } from './wasm.js';
+import { validateCandidates } from './llm.js';
+import { getSetting } from './db.js';
 
 /** @type {AbortController|null} */
 let activeEventSource = null;
@@ -350,8 +352,52 @@ function showValidatePanel() {
 }
 
 async function runValidation() {
-  solveStatus.textContent = "LLM validation will be connected in a future update.";
-  // Task 23 will implement this using direct Anthropic API calls
+  const apiKey = await getSetting('anthropic_api_key');
+  if (!apiKey) {
+    solveStatus.textContent = "Set your Anthropic API key in settings first.";
+    return;
+  }
+
+  const leftContext = validateLeft.value;
+  const rightContext = validateRight.value;
+  const candidateTexts = allResults.map(r => r.text);
+
+  if (!candidateTexts.length) {
+    solveStatus.textContent = "No candidates to validate.";
+    return;
+  }
+
+  const redactionId = state.activeRedaction;
+  validateRun.disabled = true;
+  solveStatus.textContent = "Validating candidates with LLM...";
+
+  try {
+    const scores = await validateCandidates(leftContext, rightContext, candidateTexts, apiKey, (scored, total) => {
+      solveStatus.textContent = `Scoring candidates... ${scored}/${total}`;
+    });
+
+    // Attach scores to results and sort descending
+    const scored = allResults.map((r, i) => ({
+      text: r.text,
+      error_px: r.error,
+      llm_score: scores[i],
+      source: '',
+    }));
+    scored.sort((a, b) => b.llm_score - a.llm_score);
+
+    // Clear existing results and re-render sorted by LLM score
+    solveResults.innerHTML = '';
+    displayedCount = 0;
+    for (const item of scored) {
+      renderScoredResult(item, redactionId);
+    }
+
+    solveStatus.textContent = `Validation complete. ${scored.length} candidates scored.`;
+  } catch (err) {
+    solveStatus.textContent = "Validation error: " + err.message;
+  } finally {
+    validateRun.disabled = false;
+  }
 }
 
 /**
