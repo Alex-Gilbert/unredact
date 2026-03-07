@@ -235,7 +235,7 @@ function groupCharRuns(chars) {
  * @param {string[]} [candidates] - font names to try
  * @returns {FontMatch}
  */
-export function detectFont(pageImageData, line, candidates) {
+function detectFont(pageImageData, line, candidates) {
     const fonts = candidates || DEFAULT_CANDIDATES;
     const cropW = Math.min(line.w, pageImageData.width - line.x);
     const cropH = Math.min(line.h, pageImageData.height - line.y);
