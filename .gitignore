@@ -8,5 +8,6 @@ build/
 .pids/
 .env
 solver_rs/target/
+unredact-wasm/target/
 scripts/.cache/
 debug/
