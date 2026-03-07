@@ -36,6 +36,7 @@ body {
 }
 
 header {
+  position: relative;
   padding: 1rem 2rem;
   background: var(--bg-surface);
   border-bottom: 2px solid var(--border);
@@ -1025,5 +1026,124 @@ main {
   #viewer-section {
     padding-bottom: var(--sheet-height, 60px);
   }
+}
+
+/* Settings button */
+.settings-btn {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.5rem;
+  cursor: pointer;
+  opacity: 0.7;
+  padding: 0.25rem 0.5rem;
+}
+.settings-btn:hover {
+  opacity: 1;
+}
+
+/* Modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: #1e1e2e;
+  border-radius: 8px;
+  padding: 1.5rem;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+.modal-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.5rem;
+  cursor: pointer;
+  opacity: 0.7;
+  padding: 0;
+  line-height: 1;
+}
+.modal-close:hover {
+  opacity: 1;
+}
+.setting-group {
+  margin-bottom: 1rem;
+}
+.setting-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.api-key-row {
+  display: flex;
+  gap: 0.5rem;
+}
+.api-key-row input {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #2a2a3e;
+  color: inherit;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+.settings-action-btn {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #3a3a5e;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.settings-action-btn:hover {
+  background: #4a4a6e;
+}
+.settings-action-btn.secondary {
+  background: transparent;
+  border-color: #555;
+}
+.settings-action-btn.secondary:hover {
+  background: #2a2a3e;
+}
+.api-key-status {
+  display: block;
+  font-size: 0.8rem;
+  margin-top: 0.3rem;
+  min-height: 1.2em;
+}
+.api-key-status.saved {
+  color: #4caf50;
+}
+.api-key-status.error {
+  color: #ef5350;
+}
+.setting-hint {
+  font-size: 0.75rem;
+  opacity: 0.6;
+  margin-top: 0.5rem;
 }
 

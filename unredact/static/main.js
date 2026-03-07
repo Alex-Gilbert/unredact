@@ -12,6 +12,7 @@ import { renderCanvas } from './canvas.js';
 import { applyTransform, screenToDoc, hitTestRedaction, initViewport } from './viewport.js';
 import { openPopover, closePopover, setOnPopoverClose, updatePosDisplay, initPopover } from './popover.js';
 import { stopSolve, acceptSolution, initSolver } from './solver.js';
+import { initSettings } from './settings.js';
 
 
 // ── Sheet snap management ──
@@ -777,3 +778,4 @@ initSolver();
 initSheetTabs();
 initSheetDrag();
 handleLayoutChange();
+initSettings();

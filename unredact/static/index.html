@@ -10,6 +10,7 @@
   <header>
     <h1>UNREDACT</h1>
     <p class="subtitle">Epstein Files Redaction Analysis</p>
+    <button id="settings-btn" class="settings-btn" title="Settings">&#9881;</button>
   </header>
 
   <main>
@@ -175,6 +176,27 @@
       </div>
     </section>
   </main>
+
+  <div id="settings-modal" class="modal-backdrop" hidden>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button id="settings-close" class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="setting-group">
+          <label for="api-key-input">Anthropic API Key</label>
+          <div class="api-key-row">
+            <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+            <button id="api-key-save" class="settings-action-btn">Save</button>
+            <button id="api-key-clear" class="settings-action-btn secondary">Clear</button>
+          </div>
+          <span id="api-key-status" class="api-key-status"></span>
+          <p class="setting-hint">Your API key is stored locally in your browser and never sent to any server except Anthropic's API.</p>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div id="toast-container"></div>
   <script type="module" src="/static/main.js"></script>
