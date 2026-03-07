@@ -15,11 +15,11 @@ import { stopSolve, acceptSolution, initSolver } from './solver.js';
 import { initSettings } from './settings.js';
 import { loadPdf, renderPage } from './pdf.js';
 import { initOcr, ocrPage } from './ocr.js';
-import { initWasm, detectRedactions, spotRedaction, findRedactionInRegion } from './wasm.js';
+import { initWasm, detectRedactions, spotRedaction } from './wasm.js';
 import { detectFontMasked, detectFontMarquee, cropToGrayscale } from './font_detect.js';
 import { identifyBoundaryText } from './llm.js';
 import { getSetting, saveDocument, savePage, getPage, getDocument, listDocuments, deleteDocument } from './db.js';
-import { initMarquee, setOnAnalyze, clearMarquee } from './marquee.js';
+import { initMarquee, clearMarquee, marquee } from './marquee.js';
 
 
 // ── Sheet snap management ──
@@ -474,46 +474,45 @@ if (detectBtn) {
   });
 }
 
-// ── Marquee-based analysis ──
+// ── Double-click redaction analysis (uses marquee for context) ──
 
-setOnAnalyze(async (m) => {
-    const page = state.currentPage;
-    if (!state.pageImages?.[page]) {
-        showToast("Page not loaded yet", "error");
-        return;
-    }
+canvas.addEventListener("dblclick", async (e) => {
+  const rect = rightPanel.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const doc = screenToDoc(sx, sy);
 
-    const imageData = state.pageImages[page].imageData;
+  const page = state.currentPage;
+  if (!state.pageImages?.[page]) {
+    showToast("Page not loaded yet", "error");
+    return;
+  }
 
-    // Auto-detect redaction box within the marquee
-    const box = findRedactionInRegion(
-        imageData,
-        Math.round(m.x), Math.round(m.y),
-        Math.round(m.x + m.w), Math.round(m.y + m.h),
-        0
-    );
-    if (!box) {
-        showToast("No redaction found in selection", "error");
-        return;
-    }
+  const imageData = state.pageImages[page].imageData;
 
-    // Show detected box on marquee
-    m.detectedBox = box;
+  // Flood-fill to detect the redaction box at click point
+  const box = spotRedaction(imageData, Math.round(doc.x), Math.round(doc.y));
+  if (!box) {
+    showToast("No redaction found at that spot", "error");
+    return;
+  }
+
+  // If a marquee is active, use it as the crop context for font detection
+  if (marquee.active) {
+    marquee.detectedBox = box;
     renderCanvas();
 
-    // Crop the marquee region to grayscale
-    const cropX = Math.round(m.x);
-    const cropY = Math.round(m.y);
-    const cropW = Math.min(Math.round(m.w), imageData.width - cropX);
-    const cropH = Math.min(Math.round(m.h), imageData.height - cropY);
+    const cropX = Math.round(marquee.x);
+    const cropY = Math.round(marquee.y);
+    const cropW = Math.min(Math.round(marquee.w), imageData.width - cropX);
+    const cropH = Math.min(Math.round(marquee.h), imageData.height - cropY);
     const cropGray = cropToGrayscale(imageData, cropX, cropY, cropW, cropH);
 
-    // Redaction box position relative to the crop
     const relBox = {
-        x: box.x - cropX,
-        y: box.y - cropY,
-        w: box.w,
-        h: box.h,
+      x: box.x - cropX,
+      y: box.y - cropY,
+      w: box.w,
+      h: box.h,
     };
 
     // Split OCR text into left/right of the redaction box
@@ -524,74 +523,70 @@ setOnAnalyze(async (m) => {
     let bestLine = null;
     let bestOverlap = 0;
     for (const line of ocrLines) {
-        const overlap = Math.max(0,
-            Math.min(box.y + box.h, line.y + line.h) - Math.max(box.y, line.y)
-        );
-        if (overlap > bestOverlap) {
-            bestOverlap = overlap;
-            bestLine = line;
-        }
+      const overlap = Math.max(0,
+        Math.min(box.y + box.h, line.y + line.h) - Math.max(box.y, line.y)
+      );
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        bestLine = line;
+      }
     }
 
     if (bestLine?.chars) {
-        const leftChars = bestLine.chars.filter(c => c.x + c.w / 2 < box.x);
-        const rightChars = bestLine.chars.filter(c => c.x + c.w / 2 > box.x + box.w);
-        leftText = leftChars.map(c => c.text).join('').trim();
-        rightText = rightChars.map(c => c.text).join('').trim();
+      const leftChars = bestLine.chars.filter(c => c.x + c.w / 2 < box.x);
+      const rightChars = bestLine.chars.filter(c => c.x + c.w / 2 > box.x + box.w);
+      leftText = leftChars.map(c => c.text).join('').trim();
+      rightText = rightChars.map(c => c.text).join('').trim();
     }
 
-    // LLM boundary text if API key available
     const apiKey = await getSetting('anthropic_api_key');
     if (apiKey && bestLine) {
-        try {
-            const boundary = await identifyBoundaryText(bestLine, box.x, box.w, apiKey);
-            leftText = boundary.leftText;
-            rightText = boundary.rightText;
-        } catch (_e) {
-            // Keep OCR-based text
-        }
+      try {
+        const boundary = await identifyBoundaryText(bestLine, box.x, box.w, apiKey);
+        leftText = boundary.leftText;
+        rightText = boundary.rightText;
+      } catch (_e) { /* keep OCR text */ }
     }
 
-    // Run font detection
     const candidates = state.fonts.filter(f => f.available).map(f => f.name);
     showToast("Detecting font...", "info");
     const match = detectFontMarquee(cropGray, cropW, cropH, relBox, leftText, rightText, candidates);
 
     const fontId = (state.fonts.find(f => f.name === match.fontName) || {}).id
-        || match.fontName.toLowerCase().replace(/\s+/g, '-');
+      || match.fontName.toLowerCase().replace(/\s+/g, '-');
 
     const id = `p${page}-r${box.x}-${box.y}-${box.w}-${box.h}`;
     const analysis = {
-        font: { id: fontId, name: match.fontName, size: match.fontSize },
-        gap: { x: box.x, y: box.y, w: box.w, h: box.h },
-        line: bestLine
-            ? { text: bestLine.text, x: bestLine.x, y: bestLine.y, w: bestLine.w, h: bestLine.h }
-            : { text: '', x: box.x, y: box.y, w: box.w, h: box.h },
-        segments: [
-            { text: leftText, side: 'left' },
-            { text: rightText, side: 'right' },
-        ],
-        offset_x: match.xOffset,
-        offset_y: match.yOffset,
+      font: { id: fontId, name: match.fontName, size: match.fontSize },
+      gap: { x: box.x, y: box.y, w: box.w, h: box.h },
+      line: bestLine
+        ? { text: bestLine.text, x: bestLine.x, y: bestLine.y, w: bestLine.w, h: bestLine.h }
+        : { text: '', x: box.x, y: box.y, w: box.w, h: box.h },
+      segments: [
+        { text: leftText, side: 'left' },
+        { text: rightText, side: 'right' },
+      ],
+      offset_x: match.xOffset,
+      offset_y: match.yOffset,
     };
 
     state.redactions[id] = {
-        id,
-        x: box.x, y: box.y, w: box.w, h: box.h,
-        page,
-        status: "analyzed",
-        analysis,
-        solution: null,
-        preview: null,
-        overrides: {
-            fontId,
-            fontSize: match.fontSize,
-            offsetX: match.xOffset,
-            offsetY: match.yOffset,
-            gapWidth: box.w,
-            leftText,
-            rightText,
-        },
+      id,
+      x: box.x, y: box.y, w: box.w, h: box.h,
+      page,
+      status: "analyzed",
+      analysis,
+      solution: null,
+      preview: null,
+      overrides: {
+        fontId,
+        fontSize: match.fontSize,
+        offsetX: match.xOffset,
+        offsetY: match.yOffset,
+        gapWidth: box.w,
+        leftText,
+        rightText,
+      },
     };
 
     clearMarquee();
@@ -599,6 +594,48 @@ setOnAnalyze(async (m) => {
     renderCanvas();
     activateRedaction(id);
     showToast(`Font: ${match.fontName} ${match.fontSize.toFixed(1)}px (score: ${match.score.toFixed(3)})`, "success");
+    return;
+  }
+
+  // No marquee — fall back to old analyzeRedaction flow
+  const ocrLines = (state.ocrData?.[page]) || [];
+  const apiKey = await getSetting('anthropic_api_key');
+  const analysis = await analyzeRedaction(imageData, ocrLines, box, apiKey);
+
+  if (!analysis) {
+    showToast(state.ocrReady
+      ? "No text found near this redaction"
+      : "OCR still processing — redaction added without analysis",
+      "info");
+  }
+
+  const id = `p${page}-r${box.x}-${box.y}-${box.w}-${box.h}`;
+  const redaction = {
+    id,
+    x: box.x, y: box.y, w: box.w, h: box.h,
+    page,
+    status: analysis ? "analyzed" : "unanalyzed",
+    analysis: analysis || null,
+    solution: null,
+    preview: null,
+  };
+
+  if (analysis) {
+    redaction.overrides = {
+      fontId: analysis.font.id,
+      fontSize: analysis.font.size,
+      offsetX: analysis.offset_x || 0,
+      offsetY: analysis.offset_y || 0,
+      gapWidth: analysis.gap.w,
+      leftText: analysis.segments[0]?.text || "",
+      rightText: analysis.segments[1]?.text || "",
+    };
+  }
+
+  state.redactions[id] = redaction;
+  renderRedactionList();
+  renderCanvas();
+  activateRedaction(id);
 });
 
 // ── Page loading ──
