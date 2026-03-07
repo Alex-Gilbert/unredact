@@ -210,7 +210,7 @@ async function loadFonts() {
 
 async function loadAssociates() {
   try {
-    const resp = await fetch("/api/associates");
+    const resp = await fetch("data/associates.json");
     state.associates = await resp.json();
     state.associates.victim_set = new Set(state.associates.victim_names || []);
     console.log(`Loaded ${Object.keys(state.associates.names).length} associate lookups, ${state.associates.victim_set.size} victim names`);
