@@ -272,12 +272,10 @@ async function uploadFile(file) {
 
   uploadSection.hidden = true;
   viewerSection.hidden = false;
+  if (detectBtn) detectBtn.disabled = false;
 
   // Render and display the first page
   await loadPage(1);
-
-  // Start background OCR on all pages
-  runBackgroundOcr();
 }
 
 /**
@@ -430,40 +428,6 @@ async function analyzeRedaction(imageData, ocrLines, box, apiKey) {
     offset_x: 0,
     offset_y: 0,
   };
-}
-
-/**
- * Run OCR on all pages in background, storing results in state.
- */
-async function runBackgroundOcr() {
-  showToast("Running OCR...", "info");
-  const statusEl = document.getElementById("ocr-status");
-
-  for (let page = 1; page <= state.pageCount; page++) {
-    try {
-      // Ensure page is rendered
-      if (!state.pageImages[page]) {
-        const result = await renderPage(state.pdfDoc, page);
-        const blobUrl = URL.createObjectURL(result.blob);
-        state.pageImages[page] = { imageData: result.imageData, blob: result.blob, blobUrl };
-      }
-
-      const lines = await ocrPage(state.pageImages[page].blob);
-      state.ocrData[page] = lines;
-
-      // Persist OCR data to IndexedDB
-      await savePage(state.docId, page, { ocrLines: state.ocrData[page] });
-
-      if (statusEl) statusEl.textContent = `OCR: page ${page}/${state.pageCount} done`;
-    } catch (e) {
-      showToast(`OCR error on page ${page}: ${e.message}`, "error");
-    }
-  }
-
-  state.ocrReady = true;
-  if (statusEl) statusEl.textContent = "OCR complete";
-  showToast("OCR complete — ready to detect redactions", "success");
-  if (detectBtn) detectBtn.disabled = false;
 }
 
 if (detectBtn) {
@@ -628,10 +592,7 @@ canvas.addEventListener("dblclick", async (e) => {
   const analysis = await analyzeRedaction(imageData, ocrLines, box, apiKey);
 
   if (!analysis) {
-    showToast(state.ocrReady
-      ? "No text found near this redaction"
-      : "OCR still processing — redaction added without analysis",
-      "info");
+    showToast("No text found near this redaction", "info");
   }
 
   const id = `p${page}-r${box.x}-${box.y}-${box.w}-${box.h}`;
@@ -1115,9 +1076,7 @@ async function resumeDocument(docId) {
     }
   }
 
-  // Check if OCR was completed for all pages
-  state.ocrReady = Object.keys(state.ocrData).length >= state.pageCount;
-  if (state.ocrReady && detectBtn) detectBtn.disabled = false;
+  if (detectBtn) detectBtn.disabled = false;
 
   uploadSection.hidden = true;
   viewerSection.hidden = false;

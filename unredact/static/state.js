@@ -10,7 +10,6 @@ export const state = {
   activeRedaction: null,
   fonts: [],
   fontsReady: false,
-  ocrReady: false,
   zoom: 1,
   panX: 0,
   panY: 0,
