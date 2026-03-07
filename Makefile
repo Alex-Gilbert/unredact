@@ -148,7 +148,7 @@ logs:
 
 # ── Clean ──
 
-clean: stop
+clean: stop clean-static
 	rm -rf $(PID_DIR)
 	cd solver_rs && cargo clean
 
