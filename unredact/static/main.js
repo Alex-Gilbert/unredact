@@ -482,9 +482,14 @@ canvas.addEventListener("dblclick", async (e) => {
     };
     maskBoxRGBA(ocrCrop, relBox.x, relBox.y, relBox.w, relBox.h);
 
+    // Convert ImageData to Blob — Tesseract.js can't read raw ImageData
+    const ocrCanvas = new OffscreenCanvas(ocrCrop.width, ocrCrop.height);
+    ocrCanvas.getContext('2d').putImageData(ocrCrop, 0, 0);
+    const ocrBlob = await ocrCanvas.convertToBlob({ type: 'image/png' });
+
     let ocrLines;
     try {
-      ocrLines = await ocrPage(ocrCrop);
+      ocrLines = await ocrPage(ocrBlob);
     } catch (err) {
       showToast("OCR failed: " + err.message, "error");
       return;
