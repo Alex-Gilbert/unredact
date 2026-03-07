@@ -548,9 +548,15 @@ canvas.addEventListener("dblclick", async (e) => {
       } catch (_e) { /* keep OCR text */ }
     }
 
+    // Use first OCR char's y as baseline hint (consistent for the whole line)
+    const firstChar = bestLine?.chars?.[0];
+    const hint = firstChar
+      ? { x: firstChar.x - cropX, y: firstChar.y - cropY }
+      : undefined;
+
     const candidates = state.fonts.filter(f => f.available).map(f => f.name);
     showToast("Detecting font...", "info");
-    const match = detectFontMarquee(cropGray, cropW, cropH, relBox, leftText, rightText, candidates);
+    const match = detectFontMarquee(cropGray, cropW, cropH, relBox, leftText, rightText, candidates, hint);
 
     const fontId = (state.fonts.find(f => f.name === match.fontName) || {}).id
       || match.fontName.toLowerCase().replace(/\s+/g, '-');
