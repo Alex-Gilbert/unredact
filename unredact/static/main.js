@@ -519,6 +519,16 @@ canvas.addEventListener("dblclick", async (e) => {
       const rightChars = bestLine.chars.filter(c => c.x + c.w / 2 > relBox.x + relBox.w);
       leftText = leftChars.map(c => c.text).join('').trim();
       rightText = rightChars.map(c => c.text).join('').trim();
+
+      // LLM pass to clean up OCR text (fixes missing spaces, garbled chars)
+      const apiKey = await getSetting('anthropic_api_key');
+      if (apiKey) {
+        try {
+          const boundary = await identifyBoundaryText(bestLine, relBox.x, relBox.w, apiKey);
+          leftText = boundary.leftText;
+          rightText = boundary.rightText;
+        } catch (_e) { /* keep OCR text */ }
+      }
     }
 
     // Use first OCR char's y as baseline hint (already crop-relative)
