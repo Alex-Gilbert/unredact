@@ -1,5 +1,5 @@
 // settings.js — API key and preferences management
-import { getSetting, setSetting, saveUserFont, getUserFonts } from './db.js';
+import { getSetting, setSetting, saveUserFont, getUserFonts, deleteUserFont } from './db.js';
 
 export async function getApiKey() {
     return getSetting('anthropic_api_key');
@@ -22,18 +22,32 @@ export function hideSettingsModal() {
     document.getElementById('settings-modal').hidden = true;
 }
 
-function renderUserFonts(fonts, container) {
+function renderUserFonts(fonts, container, onDelete) {
     container.innerHTML = '';
     for (const f of fonts) {
         const div = document.createElement('div');
         div.className = 'user-font-item';
-        div.textContent = f.name;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = f.name;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'user-font-remove';
+        removeBtn.textContent = '\u00d7';
+        removeBtn.title = `Remove ${f.name}`;
+        removeBtn.addEventListener('click', () => onDelete(f));
+
+        div.appendChild(nameSpan);
+        div.appendChild(removeBtn);
         container.appendChild(div);
     }
 }
 
-// Initialize settings UI — call once from main.js
-export async function initSettings() {
+/**
+ * Initialize settings UI — call once from main.js.
+ * @param {{ onFontAdded?: (font: {id: string, name: string}) => void, onFontRemoved?: (fontId: string) => void }} [callbacks]
+ */
+export async function initSettings(callbacks) {
     const settingsBtn = document.getElementById('settings-btn');
     const modal = document.getElementById('settings-modal');
     const apiKeyInput = document.getElementById('api-key-input');
@@ -92,9 +106,19 @@ export async function initSettings() {
     const fontUploadInput = document.getElementById('font-upload-input');
     const userFontList = document.getElementById('user-font-list');
 
+    async function handleDelete(f) {
+        await deleteUserFont(f.fontId);
+        for (const face of document.fonts) {
+            if (face.family === f.name) { document.fonts.delete(face); break; }
+        }
+        const fonts = await getUserFonts();
+        renderUserFonts(fonts, userFontList, handleDelete);
+        if (callbacks?.onFontRemoved) callbacks.onFontRemoved(f.fontId);
+    }
+
     // Render existing user fonts
     const existingFonts = await getUserFonts();
-    renderUserFonts(existingFonts, userFontList);
+    renderUserFonts(existingFonts, userFontList, handleDelete);
 
     fontUploadBtn.addEventListener('click', () => fontUploadInput.click());
     fontUploadInput.addEventListener('change', async () => {
@@ -112,7 +136,9 @@ export async function initSettings() {
 
         // Update list
         const fonts = await getUserFonts();
-        renderUserFonts(fonts, userFontList);
+        renderUserFonts(fonts, userFontList, handleDelete);
         fontUploadInput.value = '';
+
+        if (callbacks?.onFontAdded) callbacks.onFontAdded({ id: fontId, name });
     });
 }

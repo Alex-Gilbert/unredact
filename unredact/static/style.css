@@ -1207,8 +1207,23 @@ main {
     margin-top: 0.5rem;
 }
 .user-font-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     font-size: 0.85rem;
-    padding: 0.2rem 0;
+    padding: 0.25rem 0;
     opacity: 0.8;
+}
+.user-font-remove {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #888);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0 0.25rem;
+    line-height: 1;
+}
+.user-font-remove:hover {
+    color: var(--danger, #e55);
 }
 

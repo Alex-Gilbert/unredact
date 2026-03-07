@@ -227,6 +227,16 @@ export async function saveUserFont(fontId, name, blob) {
     });
 }
 
+export async function deleteUserFont(fontId) {
+    const d = await openDb();
+    return new Promise((resolve, reject) => {
+        const tx = d.transaction('fonts', 'readwrite');
+        const req = tx.objectStore('fonts').delete(fontId);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+    });
+}
+
 export async function getUserFonts() {
     const d = await openDb();
     return new Promise((resolve, reject) => {
