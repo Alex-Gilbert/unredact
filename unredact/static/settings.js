@@ -1,5 +1,5 @@
 // settings.js — API key and preferences management
-import { getSetting, setSetting } from './db.js';
+import { getSetting, setSetting, saveUserFont, getUserFonts } from './db.js';
 
 export async function getApiKey() {
     return getSetting('anthropic_api_key');
@@ -20,6 +20,16 @@ export function showSettingsModal() {
 
 export function hideSettingsModal() {
     document.getElementById('settings-modal').hidden = true;
+}
+
+function renderUserFonts(fonts, container) {
+    container.innerHTML = '';
+    for (const f of fonts) {
+        const div = document.createElement('div');
+        div.className = 'user-font-item';
+        div.textContent = f.name;
+        container.appendChild(div);
+    }
 }
 
 // Initialize settings UI — call once from main.js
@@ -75,5 +85,34 @@ export async function initSettings() {
         await clearApiKey();
         statusEl.textContent = 'API key cleared';
         statusEl.className = 'api-key-status';
+    });
+
+    // Font upload
+    const fontUploadBtn = document.getElementById('font-upload-btn');
+    const fontUploadInput = document.getElementById('font-upload-input');
+    const userFontList = document.getElementById('user-font-list');
+
+    // Render existing user fonts
+    const existingFonts = await getUserFonts();
+    renderUserFonts(existingFonts, userFontList);
+
+    fontUploadBtn.addEventListener('click', () => fontUploadInput.click());
+    fontUploadInput.addEventListener('change', async () => {
+        const file = fontUploadInput.files[0];
+        if (!file) return;
+        const name = file.name.replace(/\.(ttf|otf|woff2?)$/i, '');
+        const fontId = 'user-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const blob = new Blob([await file.arrayBuffer()], { type: file.type });
+        await saveUserFont(fontId, name, blob);
+
+        // Register font immediately
+        const face = new FontFace(name, await blob.arrayBuffer());
+        const loaded = await face.load();
+        document.fonts.add(loaded);
+
+        // Update list
+        const fonts = await getUserFonts();
+        renderUserFonts(fonts, userFontList);
+        fontUploadInput.value = '';
     });
 }
