@@ -193,6 +193,12 @@ This tool is not intended for use in legal proceedings, journalism, law enforcem
 
 The author makes no claims of accuracy, completeness, or fitness for any particular purpose, and accepts no liability for misuse or for any consequences arising from the use of this tool.
 
+## Support
+
+A few people asked me to set up a way to support this project, so here it is. Please don't feel any obligation — this project is free and will stay that way. But if Unredact has been useful or interesting to you and you'd like to buy me a coffee, I genuinely appreciate it.
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/apgcodes)
+
 ## License
 
 [MIT](LICENSE)
