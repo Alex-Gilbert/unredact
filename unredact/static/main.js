@@ -618,7 +618,12 @@ canvas.addEventListener("dblclick", async (e) => {
   }
 
   // No marquee — fall back to old analyzeRedaction flow
-  const ocrLines = (state.ocrData?.[page]) || [];
+  // Run page-level OCR on demand if not already cached
+  if (!state.ocrData?.[page]) {
+    showToast("Running OCR on page...", "info");
+    state.ocrData[page] = await ocrPage(state.pageImages[page].blob);
+  }
+  const ocrLines = state.ocrData[page];
   const apiKey = await getSetting('anthropic_api_key');
   const analysis = await analyzeRedaction(imageData, ocrLines, box, apiKey);
 
