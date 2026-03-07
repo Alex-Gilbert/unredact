@@ -157,6 +157,54 @@ function groupIntoLines(words) {
 }
 
 /**
+ * Extract a rectangular region from an ImageData as a new ImageData.
+ * @param {ImageData} src - full page RGBA image
+ * @param {number} x
+ * @param {number} y
+ * @param {number} w
+ * @param {number} h
+ * @returns {ImageData}
+ */
+export function cropImageData(src, x, y, w, h) {
+    x = Math.max(0, Math.round(x));
+    y = Math.max(0, Math.round(y));
+    w = Math.min(Math.round(w), src.width - x);
+    h = Math.min(Math.round(h), src.height - y);
+    const dst = new ImageData(w, h);
+    for (let row = 0; row < h; row++) {
+        const srcOff = ((y + row) * src.width + x) * 4;
+        const dstOff = row * w * 4;
+        dst.data.set(src.data.subarray(srcOff, srcOff + w * 4), dstOff);
+    }
+    return dst;
+}
+
+/**
+ * Mask a rectangular region to white (255,255,255,255) in an ImageData.
+ * Mutates in place.
+ * @param {ImageData} img
+ * @param {number} rx
+ * @param {number} ry
+ * @param {number} rw
+ * @param {number} rh
+ */
+export function maskBoxRGBA(img, rx, ry, rw, rh) {
+    const x0 = Math.max(0, Math.round(rx));
+    const y0 = Math.max(0, Math.round(ry));
+    const x1 = Math.min(img.width, Math.round(rx + rw));
+    const y1 = Math.min(img.height, Math.round(ry + rh));
+    for (let row = y0; row < y1; row++) {
+        for (let col = x0; col < x1; col++) {
+            const i = (row * img.width + col) * 4;
+            img.data[i] = 255;
+            img.data[i + 1] = 255;
+            img.data[i + 2] = 255;
+            img.data[i + 3] = 255;
+        }
+    }
+}
+
+/**
  * Terminate the OCR worker (cleanup).
  */
 export async function terminateOcr() {
