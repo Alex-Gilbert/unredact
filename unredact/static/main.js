@@ -13,6 +13,12 @@ import { applyTransform, screenToDoc, hitTestRedaction, initViewport } from './v
 import { openPopover, closePopover, setOnPopoverClose, updatePosDisplay, initPopover } from './popover.js';
 import { stopSolve, acceptSolution, initSolver } from './solver.js';
 import { initSettings } from './settings.js';
+import { loadPdf, renderPage } from './pdf.js';
+import { initOcr, ocrPage } from './ocr.js';
+import { initWasm, detectRedactions, spotRedaction } from './wasm.js';
+import { detectFontMasked } from './font_detect.js';
+import { identifyBoundaryText } from './llm.js';
+import { getSetting } from './db.js';
 
 
 // ── Sheet snap management ──
@@ -238,100 +244,218 @@ fileInput.addEventListener("change", () => {
 });
 
 async function uploadFile(file) {
-  uploadSection.innerHTML = '<p class="loading">Uploading document...</p>';
+  uploadSection.innerHTML = '<p class="loading">Loading document...</p>';
 
+  // Initialize modules in parallel with font/associate loading
   const fontPromise = loadFonts();
   const assocPromise = loadAssociates();
+  const wasmPromise = initWasm();
+  const ocrPromise = initOcr();
 
-  const form = new FormData();
-  form.append("file", file);
-  const resp = await fetch("/api/upload", { method: "POST", body: form });
-  const data = await resp.json();
+  // Load the PDF
+  const buffer = await file.arrayBuffer();
+  const { pageCount, doc } = await loadPdf(buffer);
 
-  state.docId = data.doc_id;
-  state.pageCount = data.page_count;
+  state.docId = Date.now();
+  state.pageCount = pageCount;
   state.currentPage = 1;
+  state.pdfDoc = doc;
+  state.pageImages = {};
+  state.ocrData = {};
 
-  await Promise.all([fontPromise, assocPromise]);
+  await Promise.all([fontPromise, assocPromise, wasmPromise, ocrPromise]);
 
   uploadSection.hidden = true;
   viewerSection.hidden = false;
 
-  // Load the first page image and controls immediately
+  // Render and display the first page
   await loadPage(1);
 
-  // Start background OCR via SSE
-  startOcrSSE();
+  // Start background OCR on all pages
+  runBackgroundOcr();
 }
 
 /**
- * Open an SSE connection to the analyze endpoint. As each page completes,
- * reload its redaction data (which now includes pre-computed analysis).
+ * Run client-side redaction detection and analysis on all pages.
  */
-function startAnalysisSSE() {
-  const es = new EventSource(`/api/doc/${state.docId}/analyze`);
+async function runAnalysis() {
   showToast("Analyzing document...");
 
-  es.addEventListener("message", (e) => {
-    /** @type {any} */
-    const data = JSON.parse(e.data);
+  const apiKey = await getSetting('anthropic_api_key');
 
-    if (data.event === "page_complete") {
-      // Reload the page data to pick up pre-computed analysis
-      loadPageData(data.page);
-    } else if (data.event === "error") {
-      showToast(`Page ${data.page}: ${data.message}`, "error");
-    } else if (data.event === "done") {
-      es.close();
-      showToast("Analysis complete");
-      if (detectBtn) {
-        detectBtn.disabled = false;
-        detectBtn.textContent = "Detect Redactions";
+  for (let page = 1; page <= state.pageCount; page++) {
+    try {
+      // Ensure page is rendered and OCR'd
+      if (!state.pageImages[page]) {
+        const result = await renderPage(state.pdfDoc, page);
+        const blobUrl = URL.createObjectURL(result.blob);
+        state.pageImages[page] = { imageData: result.imageData, blobUrl };
       }
-    }
-  });
+      if (!state.ocrData[page]) {
+        state.ocrData[page] = await ocrPage(state.pageImages[page].imageData);
+      }
 
-  es.addEventListener("error", () => {
-    es.close();
-    showToast("Analysis connection lost", "error");
-    if (detectBtn) {
-      detectBtn.disabled = false;
-      detectBtn.textContent = "Detect Redactions";
+      const imageData = state.pageImages[page].imageData;
+      const ocrLines = state.ocrData[page];
+
+      // Step 1: Detect redaction boxes via WASM
+      const boxes = detectRedactions(imageData);
+
+      // Step 2: For each box, run analysis
+      for (const box of boxes) {
+        const analysis = await analyzeRedaction(imageData, ocrLines, box, apiKey);
+        const id = `p${page}-r${box.x}-${box.y}-${box.w}-${box.h}`;
+
+        state.redactions[id] = {
+          id,
+          x: box.x, y: box.y, w: box.w, h: box.h,
+          page,
+          status: analysis ? "analyzed" : "unanalyzed",
+          analysis: analysis || null,
+          solution: null,
+          preview: null,
+        };
+
+        if (analysis) {
+          state.redactions[id].overrides = {
+            fontId: analysis.font.id,
+            fontSize: analysis.font.size,
+            offsetX: analysis.offset_x || 0,
+            offsetY: analysis.offset_y || 0,
+            gapWidth: analysis.gap.w,
+            leftText: analysis.segments[0]?.text || "",
+            rightText: analysis.segments[1]?.text || "",
+          };
+        }
+      }
+
+      // Re-render if this is the current page
+      if (page === state.currentPage) {
+        renderRedactionList();
+        renderCanvas();
+      }
+    } catch (e) {
+      showToast(`Page ${page}: ${e.message}`, "error");
     }
-  });
+  }
+
+  showToast("Analysis complete");
+  if (detectBtn) {
+    detectBtn.disabled = false;
+    detectBtn.textContent = "Detect Redactions";
+  }
 }
 
-function startOcrSSE() {
-  const es = new EventSource(`/api/doc/${state.docId}/ocr`);
-  showToast("Running OCR...", "info");
+/**
+ * Analyze a single redaction box: find the OCR line, detect font, get boundary text.
+ * @param {ImageData} imageData
+ * @param {Array<{text: string, x: number, y: number, w: number, h: number, chars: Array<{text: string, x: number, y: number, w: number, h: number}>}>} ocrLines
+ * @param {{x: number, y: number, w: number, h: number}} box
+ * @param {string|null} apiKey
+ * @returns {Promise<object|null>}
+ */
+async function analyzeRedaction(imageData, ocrLines, box, apiKey) {
+  // Find the OCR line that best overlaps this box vertically
+  let bestLine = null;
+  let bestOverlap = 0;
 
-  es.onmessage = (e) => {
-    const data = JSON.parse(e.data);
-    if (data.event === "page_ocr_complete") {
-      const statusEl = document.getElementById("ocr-status");
-      if (statusEl) statusEl.textContent = `OCR: page ${data.page} done`;
-    } else if (data.event === "ocr_complete") {
-      es.close();
-      state.ocrReady = true;
-      const statusEl = document.getElementById("ocr-status");
-      if (statusEl) statusEl.textContent = "OCR complete";
-      showToast("OCR complete — ready to detect redactions", "success");
-      if (detectBtn) detectBtn.disabled = false;
-    } else if (data.event === "error") {
-      showToast(`OCR error on page ${data.page}: ${data.message}`, "error");
+  for (const line of ocrLines) {
+    const overlap = Math.max(0,
+      Math.min(box.y + box.h, line.y + line.h) - Math.max(box.y, line.y)
+    );
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      bestLine = line;
     }
+  }
+
+  if (!bestLine) return null;
+
+  const line = bestLine;
+
+  // Font detection with redaction masking
+  const redactionBoxes = [box];
+  const fontMatch = detectFontMasked(imageData, line, redactionBoxes);
+
+  // Get font ID from name
+  const fontId = (state.fonts.find(f => f.name === fontMatch.fontName) || {}).id || fontMatch.fontName.toLowerCase().replace(/\s+/g, '-');
+
+  // Get boundary text
+  let leftText = '';
+  let rightText = '';
+
+  if (apiKey) {
+    try {
+      const boundary = await identifyBoundaryText(line, box.x, box.w, apiKey);
+      leftText = boundary.leftText;
+      rightText = boundary.rightText;
+    } catch (_e) {
+      // Fallback: use char-based splitting
+      const leftChars = line.chars.filter(c => c.x + c.w / 2 < box.x);
+      const rightChars = line.chars.filter(c => c.x + c.w / 2 > box.x + box.w);
+      leftText = leftChars.map(c => c.text).join('').trim();
+      rightText = rightChars.map(c => c.text).join('').trim();
+    }
+  } else {
+    // No API key — fallback to char splitting
+    const leftChars = line.chars.filter(c => c.x + c.w / 2 < box.x);
+    const rightChars = line.chars.filter(c => c.x + c.w / 2 > box.x + box.w);
+    leftText = leftChars.map(c => c.text).join('').trim();
+    rightText = rightChars.map(c => c.text).join('').trim();
+  }
+
+  // Compute gap from box width
+  const gapW = box.w;
+
+  return {
+    font: { id: fontId, name: fontMatch.fontName, size: fontMatch.fontSize },
+    gap: { x: box.x, y: box.y, w: gapW, h: box.h },
+    line: { text: line.text, x: line.x, y: line.y, w: line.w, h: line.h },
+    segments: [
+      { text: leftText, side: 'left' },
+      { text: rightText, side: 'right' },
+    ],
+    offset_x: 0,
+    offset_y: 0,
   };
-  es.onerror = () => {
-    es.close();
-    showToast("OCR connection lost", "error");
-  };
+}
+
+/**
+ * Run OCR on all pages in background, storing results in state.
+ */
+async function runBackgroundOcr() {
+  showToast("Running OCR...", "info");
+  const statusEl = document.getElementById("ocr-status");
+
+  for (let page = 1; page <= state.pageCount; page++) {
+    try {
+      // Ensure page is rendered
+      if (!state.pageImages[page]) {
+        const result = await renderPage(state.pdfDoc, page);
+        const blobUrl = URL.createObjectURL(result.blob);
+        state.pageImages[page] = { imageData: result.imageData, blobUrl };
+      }
+
+      const lines = await ocrPage(state.pageImages[page].imageData);
+      state.ocrData[page] = lines;
+
+      if (statusEl) statusEl.textContent = `OCR: page ${page}/${state.pageCount} done`;
+    } catch (e) {
+      showToast(`OCR error on page ${page}: ${e.message}`, "error");
+    }
+  }
+
+  state.ocrReady = true;
+  if (statusEl) statusEl.textContent = "OCR complete";
+  showToast("OCR complete — ready to detect redactions", "success");
+  if (detectBtn) detectBtn.disabled = false;
 }
 
 if (detectBtn) {
   detectBtn.addEventListener("click", () => {
     detectBtn.disabled = true;
     detectBtn.textContent = "Detecting...";
-    startAnalysisSSE();
+    runAnalysis();
   });
 }
 
@@ -343,51 +467,24 @@ async function loadPage(page) {
   closePopover();
   updatePageControls();
 
-  docImage.src = `/api/doc/${state.docId}/page/${page}/original`;
+  // Render page if not cached
+  if (!state.pageImages[page]) {
+    const result = await renderPage(state.pdfDoc, page);
+    const blobUrl = URL.createObjectURL(result.blob);
+    state.pageImages[page] = { imageData: result.imageData, blobUrl };
+  }
 
-  await loadPageData(page);
+  docImage.src = state.pageImages[page].blobUrl;
+
+  // Load redactions from in-memory state
+  loadPageRedactions(page);
 }
 
 /**
- * Fetch page data and populate redaction state. Called both on page
- * navigation and when SSE signals a page analysis is complete.
+ * Re-render redaction list and canvas from in-memory state.
  * @param {number} pageNum
  */
-async function loadPageData(pageNum) {
-  const resp = await fetch(`/api/doc/${state.docId}/page/${pageNum}/data`);
-  const data = await resp.json();
-
-  for (const r of data.redactions) {
-    // Preserve existing solution/preview if the redaction was already loaded
-    const existing = state.redactions[r.id];
-
-    state.redactions[r.id] = {
-      id: r.id,
-      x: r.x,
-      y: r.y,
-      w: r.w,
-      h: r.h,
-      page: pageNum,
-      status: r.analysis ? "analyzed" : "unanalyzed",
-      analysis: r.analysis || null,
-      solution: existing?.solution || null,
-      preview: existing?.preview || null,
-    };
-
-    if (r.analysis) {
-      state.redactions[r.id].overrides = existing?.overrides || {
-        fontId: r.analysis.font.id,
-        fontSize: r.analysis.font.size,
-        offsetX: r.analysis.offset_x || 0,
-        offsetY: r.analysis.offset_y || 0,
-        gapWidth: r.analysis.gap.w,
-        leftText: r.analysis.segments[0]?.text || "",
-        rightText: r.analysis.segments[1]?.text || "",
-      };
-    }
-  }
-
-  // Only re-render if this is the currently viewed page
+function loadPageRedactions(pageNum) {
   if (pageNum === state.currentPage) {
     renderRedactionList();
     renderCanvas();
@@ -549,49 +646,57 @@ canvas.addEventListener("dblclick", async (e) => {
   const sy = e.clientY - rect.top;
   const doc = screenToDoc(sx, sy);
 
-  const resp = await fetch(`/api/doc/${state.docId}/page/${state.currentPage}/spot`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ x: Math.round(doc.x), y: Math.round(doc.y) }),
-  });
-  if (!resp.ok) {
+  const page = state.currentPage;
+  if (!state.pageImages || !state.pageImages[page]) {
+    showToast("Page not loaded yet", "error");
+    return;
+  }
+
+  const imageData = state.pageImages[page].imageData;
+  const box = spotRedaction(imageData, Math.round(doc.x), Math.round(doc.y));
+  if (!box) {
     showToast("No redaction found at that spot", "error");
     return;
   }
-  const r = await resp.json();
 
-  if (!r.analysis) {
+  const ocrLines = (state.ocrData && state.ocrData[page]) || [];
+  const apiKey = await getSetting('anthropic_api_key');
+  const analysis = await analyzeRedaction(imageData, ocrLines, box, apiKey);
+
+  if (!analysis) {
     showToast(state.ocrReady
       ? "No text found near this redaction"
       : "OCR still processing — redaction added without analysis",
       "info");
   }
 
+  const id = `p${page}-r${box.x}-${box.y}-${box.w}-${box.h}`;
   const redaction = {
-    id: r.id, x: r.x, y: r.y, w: r.w, h: r.h,
-    page: state.currentPage,
-    status: r.analysis ? "analyzed" : "unanalyzed",
-    analysis: r.analysis || null,
+    id,
+    x: box.x, y: box.y, w: box.w, h: box.h,
+    page,
+    status: analysis ? "analyzed" : "unanalyzed",
+    analysis: analysis || null,
     solution: null,
     preview: null,
   };
 
-  if (r.analysis) {
+  if (analysis) {
     redaction.overrides = {
-      fontId: r.analysis.font.id,
-      fontSize: r.analysis.font.size,
-      offsetX: r.analysis.offset_x || 0,
-      offsetY: r.analysis.offset_y || 0,
-      gapWidth: r.analysis.gap.w,
-      leftText: r.analysis.segments[0]?.text || "",
-      rightText: r.analysis.segments[1]?.text || "",
+      fontId: analysis.font.id,
+      fontSize: analysis.font.size,
+      offsetX: analysis.offset_x || 0,
+      offsetY: analysis.offset_y || 0,
+      gapWidth: analysis.gap.w,
+      leftText: analysis.segments[0]?.text || "",
+      rightText: analysis.segments[1]?.text || "",
     };
   }
 
-  state.redactions[r.id] = redaction;
+  state.redactions[id] = redaction;
   renderRedactionList();
   renderCanvas();
-  activateRedaction(r.id);
+  activateRedaction(id);
 });
 
 canvas.addEventListener("mousemove", (e) => {
