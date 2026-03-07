@@ -517,7 +517,18 @@ canvas.addEventListener("dblclick", async (e) => {
       h: box.h,
     };
     maskBoxRGBA(ocrCrop, relBox.x, relBox.y, relBox.w, relBox.h);
-    const ocrLines = await ocrPage(ocrCrop);
+
+    let ocrLines;
+    try {
+      ocrLines = await ocrPage(ocrCrop);
+    } catch (err) {
+      showToast("OCR failed: " + err.message, "error");
+      return;
+    }
+
+    if (ocrLines.length === 0) {
+      showToast("No text detected in selection — try a wider marquee", "warning");
+    }
 
     // Split OCR chars into left/right of the redaction box (crop-relative coords)
     let leftText = '';
