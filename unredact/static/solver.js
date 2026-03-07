@@ -12,6 +12,7 @@ import {
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
 import { matchAssociates, tierBadgeClass, tierLabel, isVictimMatch, showAssocDetail } from './associates.js';
+import { solve } from './wasm.js';
 
 /** @type {AbortController|null} */
 let activeEventSource = null;
@@ -21,7 +22,46 @@ let currentSolveId = null;
 let displayedCount = 0;
 let totalFound = 0;
 
-export function startSolve() {
+/** @type {Array<{text: string, width: number, error: number}>} */
+let allResults = [];
+
+/** @type {Object<string, string[]>} */
+const dataCache = {};
+
+async function loadDataFile(name) {
+    if (!dataCache[name]) {
+        const resp = await fetch(`data/${name}`);
+        const text = await resp.text();
+        dataCache[name] = text.split('\n').filter(line => line.trim());
+    }
+    return dataCache[name];
+}
+
+/**
+ * Measure widths of entries using Canvas measureText with kerning context.
+ * @param {string[]} entries
+ * @param {string} fontName
+ * @param {number} fontSize
+ * @param {string} leftCtx - last char of left context (for kerning)
+ * @param {string} rightCtx - first char of right context (for kerning)
+ * @returns {Array<[string, number]>}
+ */
+function measureWidths(entries, fontName, fontSize, leftCtx, rightCtx) {
+    const canvas = new OffscreenCanvas(1, 1);
+    const ctx = canvas.getContext('2d');
+    ctx.font = `${fontSize}px "${fontName}"`;
+
+    const leftW = leftCtx ? ctx.measureText(leftCtx).width : 0;
+    const rightW = rightCtx ? ctx.measureText(rightCtx).width : 0;
+
+    return entries.map(text => {
+        const full = (leftCtx || '') + text + (rightCtx || '');
+        const w = ctx.measureText(full).width - leftW - rightW;
+        return [text, w];
+    });
+}
+
+export async function startSolve() {
   const id = state.activeRedaction;
   if (!id) return;
   const r = state.redactions[id];
@@ -29,88 +69,104 @@ export function startSolve() {
 
   const a = r.analysis;
   const o = r.overrides || {};
-  const fontId = o.fontId ?? a.font.id;
+  const fontName = state.fonts.find(f => f.id === (o.fontId ?? a.font.id))?.name || a.font.name;
   const fontSize = o.fontSize ?? a.font.size;
   const gapWidth = o.gapWidth ?? a.gap.w;
+  const tolerance = parseFloat(solveTolerance.value);
 
   const leftText = o.leftText ?? (a.segments.length > 0 ? a.segments[0].text : "");
   const rightText = o.rightText ?? (a.segments.length > 1 ? a.segments[1].text : "");
   const leftCtx = leftText.length > 0 ? leftText[leftText.length - 1] : "";
   const rightCtx = rightText.length > 0 ? rightText[0] : "";
 
+  const mode = solveMode.value;
+  const knownStart = solveKnownStart.value;
+  const knownEnd = solveKnownEnd.value;
+
+  // Reset UI
   solveResults.innerHTML = "";
   solveLoadMore.hidden = true;
   currentSolveId = null;
+  allResults = [];
   displayedCount = 0;
   totalFound = 0;
-  solveStatus.textContent = "Starting...";
+  solveStatus.textContent = "Loading data...";
   solveStart.hidden = true;
   solveStop.hidden = false;
   solveAccept.hidden = true;
   solveValidate.hidden = true;
   validatePanel.hidden = true;
 
-  const body = {
-    font_id: fontId,
-    font_size: fontSize,
-    gap_width_px: gapWidth,
-    tolerance_px: parseFloat(solveTolerance.value),
-    left_context: leftCtx,
-    right_context: rightCtx,
-    hints: {
-      charset: solveCharset.value,
-    },
-    mode: solveMode.value,
-    word_filter: solveFilter.value,
-    known_start: solveKnownStart.value,
-    known_end: solveKnownEnd.value,
-    ensure_plural: solvePlural.checked,
-    vocab_size: parseInt(solveVocab.value) || 0,
-  };
-
-  const abortController = new AbortController();
-  activeEventSource = abortController;
-
-  fetch("/api/solve", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: abortController.signal,
-  }).then(response => {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    function read() {
-      reader.read().then(({ done, value }) => {
-        if (done) {
-          solveStart.hidden = false;
-          solveStop.hidden = true;
-          return;
-        }
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop();
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              handleSolveEvent(data, id);
-            } catch (e) { /* skip malformed */ }
-          }
-        }
-        read();
-      });
+  try {
+    // Load appropriate word list based on mode
+    let entries = [];
+    if (mode === 'name') {
+      const firsts = await loadDataFile('associate_first_names.txt');
+      const lasts = await loadDataFile('associate_last_names.txt');
+      entries = [...new Set([...firsts, ...lasts])];
+    } else if (mode === 'full_name') {
+      const resp = await fetch('data/associates.json');
+      const data = await resp.json();
+      // Extract all multi-word name variants
+      entries = Object.keys(data).filter(k => k.includes(' '));
+    } else if (mode === 'email') {
+      entries = await loadDataFile('emails.txt');
+    } else if (mode === 'word') {
+      const plural = solvePlural.checked;
+      const vocabSize = parseInt(solveVocab.value) || 0;
+      let nouns = await loadDataFile(plural ? 'nouns_plural.txt' : 'nouns.txt');
+      if (vocabSize > 0) nouns = nouns.slice(0, vocabSize);
+      entries = nouns;
+      // TODO: two-word phrase support (adjective + noun)
     }
-    read();
-  }).catch(err => {
-    if (err.name !== "AbortError") {
-      solveStatus.textContent = "Error: " + err.message;
+
+    solveStatus.textContent = `Measuring ${entries.length} candidates...`;
+
+    // Measure widths
+    const measured = measureWidths(entries, fontName, fontSize, leftCtx, rightCtx);
+
+    solveStatus.textContent = "Solving...";
+
+    // Call WASM solver
+    const results = solve({
+      entries: measured,
+      target_width: gapWidth,
+      tolerance: tolerance,
+      known_start: knownStart,
+      known_end: knownEnd,
+      mode: mode,
+    });
+
+    // Store all results for pagination
+    allResults = results;
+    totalFound = results.length;
+
+    // Display first batch
+    const batch = results.slice(0, 200);
+    for (const item of batch) {
+      handleSolveEvent({
+        status: "match",
+        text: item.text,
+        error_px: item.error,
+        source: mode,
+      }, id);
     }
+
+    // Show load more if needed
+    if (totalFound > 200) {
+      solveLoadMore.textContent = `Load more (showing ${displayedCount} of ${totalFound})`;
+      solveLoadMore.hidden = false;
+    }
+
+    solveStatus.textContent = `Done. ${totalFound} total matches.`;
+    if (totalFound > 0) solveValidate.hidden = false;
+  } catch (err) {
+    solveStatus.textContent = "Error: " + err.message;
+  } finally {
     solveStart.hidden = false;
     solveStop.hidden = true;
-  });
+    activeEventSource = null;
+  }
 }
 
 /**
@@ -258,30 +314,21 @@ export function acceptSolution() {
 }
 
 async function loadMore() {
-  if (!currentSolveId) return;
   solveLoadMore.disabled = true;
-  solveLoadMore.textContent = "Loading...";
-
-  try {
-    const resp = await fetch(
-      `/api/solve/${currentSolveId}/results?offset=${displayedCount}&limit=200`
-    );
-    if (!resp.ok) throw new Error("Failed to load results");
-    const data = await resp.json();
-
-    const redactionId = state.activeRedaction;
-    for (const item of data.results) {
-      handleSolveEvent({ status: "match", ...item }, redactionId);
-    }
-
-    if (displayedCount >= totalFound) {
-      solveLoadMore.hidden = true;
-    } else {
-      solveLoadMore.textContent = `Load more (showing ${displayedCount} of ${totalFound})`;
-      solveLoadMore.disabled = false;
-    }
-  } catch (err) {
-    solveLoadMore.textContent = "Error loading — click to retry";
+  const batch = allResults.slice(displayedCount, displayedCount + 200);
+  const redactionId = state.activeRedaction;
+  for (const item of batch) {
+    handleSolveEvent({
+      status: "match",
+      text: item.text,
+      error_px: item.error,
+      source: "",
+    }, redactionId);
+  }
+  if (displayedCount >= totalFound) {
+    solveLoadMore.hidden = true;
+  } else {
+    solveLoadMore.textContent = `Load more (showing ${displayedCount} of ${totalFound})`;
     solveLoadMore.disabled = false;
   }
 }
@@ -303,71 +350,8 @@ function showValidatePanel() {
 }
 
 async function runValidation() {
-  if (!currentSolveId) return;
-  validateRun.disabled = true;
-  validateRun.textContent = "Validating...";
-  solveStatus.textContent = "Starting validation...";
-
-  // Clear existing results for fresh scored list
-  solveResults.innerHTML = "";
-  displayedCount = 0;
-  solveLoadMore.hidden = true;
-
-  const redactionId = state.activeRedaction;
-
-  try {
-    const resp = await fetch(`/api/solve/${currentSolveId}/validate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        left_context: validateLeft.value,
-        right_context: validateRight.value,
-      }),
-    });
-    if (!resp.ok) {
-      const errBody = await resp.json().catch(() => ({}));
-      throw new Error(errBody.error || `Validation failed (${resp.status})`);
-    }
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop();
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        let data;
-        try { data = JSON.parse(line.slice(6)); } catch { continue; }
-
-        if (data.status === "started") {
-          solveStatus.textContent = `Validating ${data.total} results (${data.batches} batches)...`;
-        } else if (data.status === "scoring") {
-          solveStatus.textContent = `Scoring batch ${data.batch}/${data.batches} (${data.scored}/${data.total} scored)...`;
-        } else if (data.status === "batch_done") {
-          for (const item of data.results) {
-            renderScoredResult(item, redactionId);
-          }
-          solveStatus.textContent = `Scored ${data.scored}/${data.total}...`;
-        } else if (data.status === "error") {
-          throw new Error(data.error);
-        } else if (data.status === "done") {
-          solveStatus.textContent = `Validated. ${data.total} results scored.`;
-          validatePanel.hidden = true;
-        }
-      }
-    }
-  } catch (err) {
-    solveStatus.textContent = "Validation error: " + err.message;
-  } finally {
-    validateRun.disabled = false;
-    validateRun.textContent = "Run";
-  }
+  solveStatus.textContent = "LLM validation will be connected in a future update.";
+  // Task 23 will implement this using direct Anthropic API calls
 }
 
 /**
