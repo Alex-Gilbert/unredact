@@ -5,7 +5,7 @@ import { state, getPageRedactions } from './state.js';
 import { canvas, ctx, docImage, rightPanel } from './dom.js';
 // NOTE: circular import — canvas.js ↔ marquee.js. Safe because both modules
 // only access each other's exports inside function bodies, never at top level.
-import { marquee, updateAnalyzeButtonPos } from './marquee.js';
+import { marquee } from './marquee.js';
 
 /**
  * Parse text with **bold** markers into styled segments.
@@ -150,13 +150,6 @@ export function renderCanvas() {
     }
 
     ctx.restore();
-
-    // Position analyze button in screen coords
-    const pw = rightPanel.clientWidth;
-    const ph = rightPanel.clientHeight;
-    const screenCX = (m.x + m.w / 2 - state.panX) * state.zoom + pw / 2;
-    const screenBY = (m.y + m.h - state.panY) * state.zoom + ph / 2;
-    updateAnalyzeButtonPos(screenCX, screenBY);
   }
 }
 

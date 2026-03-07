@@ -23,61 +23,10 @@ export const marquee = {
     detectedBox: null,
 };
 
-/** @type {((m: MarqueeState) => void) | null} */
-let _onAnalyze = null;
-
-/** @param {(m: MarqueeState) => void} cb */
-export function setOnAnalyze(cb) { _onAnalyze = cb; }
-
 export function clearMarquee() {
     marquee.active = false;
     marquee.detectedBox = null;
-    hideAnalyzeButton();
     renderCanvas();
-}
-
-// ── Analyze button ──
-
-/** @type {HTMLButtonElement | null} */
-let analyzeBtn = null;
-
-function getAnalyzeBtn() {
-    if (analyzeBtn) return analyzeBtn;
-    analyzeBtn = document.createElement('button');
-    analyzeBtn.textContent = 'Analyze';
-    analyzeBtn.className = 'marquee-analyze-btn';
-    analyzeBtn.style.cssText = `
-        position: absolute; z-index: 100;
-        padding: 6px 16px; font-size: 14px; font-weight: bold;
-        background: #4285f4; color: white; border: none; border-radius: 4px;
-        cursor: pointer; display: none; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    `;
-    analyzeBtn.addEventListener('click', () => {
-        if (_onAnalyze && marquee.active) _onAnalyze(marquee);
-    });
-    rightPanel.appendChild(analyzeBtn);
-    return analyzeBtn;
-}
-
-function showAnalyzeButton() {
-    getAnalyzeBtn().style.display = 'block';
-}
-
-function hideAnalyzeButton() {
-    if (analyzeBtn) analyzeBtn.style.display = 'none';
-}
-
-/**
- * Update the analyze button position relative to the marquee.
- * @param {number} screenX - marquee center in screen coords
- * @param {number} screenY - marquee bottom in screen coords
- */
-export function updateAnalyzeButtonPos(screenX, screenY) {
-    const btn = getAnalyzeBtn();
-    if (!marquee.active) { btn.style.display = 'none'; return; }
-    btn.style.display = 'block';
-    btn.style.left = `${screenX - 40}px`;
-    btn.style.top = `${screenY + 8}px`;
 }
 
 // ── Drawing interaction ──
@@ -119,7 +68,6 @@ export function initMarquee() {
         marquee.h = 0;
         marquee.active = true;
         marquee.detectedBox = null;
-        hideAnalyzeButton();
     }, { capture: true });
 
     window.addEventListener('mousemove', (e) => {
@@ -158,16 +106,11 @@ export function initMarquee() {
     window.addEventListener('mouseup', () => {
         if (drawState) {
             drawState = null;
-            if (marquee.w > 10 && marquee.h > 10) {
-                showAnalyzeButton();
-            } else {
+            if (marquee.w <= 10 || marquee.h <= 10) {
                 clearMarquee();
             }
         }
-        if (resizeState) {
-            resizeState = null;
-            showAnalyzeButton();
-        }
+        resizeState = null;
     });
 
     document.addEventListener('keydown', (e) => {
