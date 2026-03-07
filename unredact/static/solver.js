@@ -32,7 +32,7 @@ const dataCache = {};
 
 async function loadDataFile(name) {
     if (!dataCache[name]) {
-        const resp = await fetch(`data/${name}`);
+        const resp = await fetch(`/data/${name}`);
         const text = await resp.text();
         dataCache[name] = text.split('\n').filter(line => line.trim());
     }
@@ -107,7 +107,7 @@ export async function startSolve() {
       const lasts = await loadDataFile('associate_last_names.txt');
       entries = [...new Set([...firsts, ...lasts])];
     } else if (mode === 'full_name') {
-      const resp = await fetch('data/associates.json');
+      const resp = await fetch('/data/associates.json');
       const data = await resp.json();
       // Extract all multi-word name variants
       entries = Object.keys(data).filter(k => k.includes(' '));

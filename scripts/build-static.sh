@@ -8,16 +8,16 @@ cd ..
 
 echo "Creating dist directory..."
 rm -rf dist
-mkdir -p dist/static dist/pkg dist/data dist/fonts
+mkdir -p dist/pkg dist/data dist/fonts
 
 # Copy WASM output
 cp unredact-wasm/pkg/unredact_core.js dist/pkg/
 cp unredact-wasm/pkg/unredact_core_bg.wasm dist/pkg/
 
-# Copy frontend
+# Copy frontend — flat at root (HTML, JS, CSS all at top level)
 cp unredact/static/*.html dist/
-cp unredact/static/*.js dist/static/
-cp unredact/static/*.css dist/static/
+cp unredact/static/*.js dist/
+cp unredact/static/*.css dist/
 
 # Copy data files
 cp unredact/data/*.txt dist/data/

@@ -1,4 +1,4 @@
-.PHONY: build build-solver run debug stop restart solver app logs status clean dev kill build-associates build-emails build-word-lists check-api-key build-static serve-static clean-static
+.PHONY: build build-solver run debug stop restart solver app logs status clean dev kill build-associates build-emails build-word-lists check-api-key build-static serve-static clean-static dev-static
 
 SOLVER_BIN  = solver_rs/target/release/unredact-solver
 SOLVER_PORT ?= 3100
@@ -173,6 +173,9 @@ build-static:
 
 serve-static:
 	cd dist && python -m http.server 8000
+
+dev-static:
+	python scripts/dev-server.py 8000
 
 clean-static:
 	rm -rf dist unredact-wasm/pkg

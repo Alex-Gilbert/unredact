@@ -169,7 +169,7 @@ mobileQuery.addEventListener('change', handleLayoutChange);
 
 async function loadFonts() {
   // Load font manifest
-  const resp = await fetch("fonts/manifest.json");
+  const resp = await fetch("/fonts/manifest.json");
   const data = await resp.json();
 
   // Check which system fonts are available by attempting to measure text
@@ -216,7 +216,7 @@ async function loadFonts() {
 
 async function loadAssociates() {
   try {
-    const resp = await fetch("data/associates.json");
+    const resp = await fetch("/data/associates.json");
     state.associates = await resp.json();
     state.associates.victim_set = new Set(state.associates.victim_names || []);
     console.log(`Loaded ${Object.keys(state.associates.names).length} associate lookups, ${state.associates.victim_set.size} victim names`);

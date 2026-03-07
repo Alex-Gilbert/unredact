@@ -1,20 +1,15 @@
 // @ts-check
 
-// The import path will be adjusted by the build pipeline.
-// During dev, the pkg/ directory is adjacent to static/.
-// In dist/, it's at pkg/unredact_core.js.
 let wasmModule = null;
 let initialized = false;
 
 /**
  * Initialize the WASM module. Must be called before any other function.
- * @param {string} [pkgPath] - path to the WASM package directory (default: 'pkg')
  */
-export async function initWasm(pkgPath = 'pkg') {
+export async function initWasm() {
     if (initialized) return;
-    // Dynamic import so the path can be configured
-    wasmModule = await import(`${pkgPath}/unredact_core.js`);
-    await wasmModule.default(); // calls the init function that loads the .wasm file
+    wasmModule = await import('/pkg/unredact_core.js');
+    await wasmModule.default();
     initialized = true;
 }
 
