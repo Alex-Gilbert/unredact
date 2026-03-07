@@ -168,8 +168,8 @@ function groupIntoLines(words) {
 export function cropImageData(src, x, y, w, h) {
     x = Math.max(0, Math.round(x));
     y = Math.max(0, Math.round(y));
-    w = Math.min(Math.round(w), src.width - x);
-    h = Math.min(Math.round(h), src.height - y);
+    w = Math.max(1, Math.min(Math.round(w), src.width - x));
+    h = Math.max(1, Math.min(Math.round(h), src.height - y));
     const dst = new ImageData(w, h);
     for (let row = 0; row < h; row++) {
         const srcOff = ((y + row) * src.width + x) * 4;
@@ -194,13 +194,9 @@ export function maskBoxRGBA(img, rx, ry, rw, rh) {
     const x1 = Math.min(img.width, Math.round(rx + rw));
     const y1 = Math.min(img.height, Math.round(ry + rh));
     for (let row = y0; row < y1; row++) {
-        for (let col = x0; col < x1; col++) {
-            const i = (row * img.width + col) * 4;
-            img.data[i] = 255;
-            img.data[i + 1] = 255;
-            img.data[i + 2] = 255;
-            img.data[i + 3] = 255;
-        }
+        const start = (row * img.width + x0) * 4;
+        const end = (row * img.width + x1) * 4;
+        img.data.fill(255, start, end);
     }
 }
 
