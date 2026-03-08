@@ -414,6 +414,10 @@ async function analyzeRedaction(imageData, ocrLines, box, apiKey) {
     rightText = rightChars.map(c => c.text).join('').trim();
   }
 
+  // Ensure spaces at redaction boundary (words are always space-separated)
+  if (leftText && !leftText.endsWith(' ')) leftText += ' ';
+  if (rightText && !rightText.startsWith(' ')) rightText = ' ' + rightText;
+
   // Compute gap from box width
   const gapW = box.w;
 
@@ -530,6 +534,10 @@ canvas.addEventListener("dblclick", async (e) => {
         } catch (_e) { /* keep OCR text */ }
       }
     }
+
+    // Ensure spaces at redaction boundary (words are always space-separated)
+    if (leftText && !leftText.endsWith(' ')) leftText += ' ';
+    if (rightText && !rightText.startsWith(' ')) rightText = ' ' + rightText;
 
     // Use first OCR char's y as baseline hint (already crop-relative)
     const firstChar = bestLine?.chars?.[0];

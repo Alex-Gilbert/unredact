@@ -751,6 +751,12 @@ main {
   background: var(--border-light);
 }
 
+.tb-btn-fine {
+  font-size: 0.55rem;
+  width: 1.6rem;
+  opacity: 0.75;
+}
+
 .size-control, .pos-control, .gap-control {
   display: flex;
   align-items: center;
