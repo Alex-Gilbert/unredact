@@ -122,20 +122,50 @@ export async function startSolve() {
       // TODO: two-word phrase support (adjective + noun)
     }
 
+    // Apply charset (case transform)
+    const charset = solveCharset.value;
+    if (charset === 'uppercase') {
+      entries = entries.map(e => e.toUpperCase());
+    } else if (charset === 'capitalized') {
+      entries = entries.map(e => e.replace(/\b\w/g, c => c.toUpperCase()));
+    }
+
+    // Filter by known start/end characters
+    if (knownStart) {
+      entries = entries.filter(e => e.toLowerCase().startsWith(knownStart.toLowerCase()));
+    }
+    if (knownEnd) {
+      entries = entries.filter(e => e.toLowerCase().endsWith(knownEnd.toLowerCase()));
+    }
+
+    // Strip known chars from entries for width measurement (they're visible
+    // outside the gap) but keep full text for display.
+    const startTrim = knownStart.length;
+    const endTrim = knownEnd.length;
+    const gapEntries = entries.map(e =>
+      e.slice(startTrim, endTrim ? -endTrim : undefined)
+    );
+
+    // Kerning context: known start char replaces left text's last char,
+    // known end char replaces right text's first char, since they're adjacent
+    // to the gap portion.
+    const gapLeftCtx = knownStart ? knownStart[knownStart.length - 1] : leftCtx;
+    const gapRightCtx = knownEnd ? knownEnd[0] : rightCtx;
+
     solveStatus.textContent = `Measuring ${entries.length} candidates...`;
 
-    // Measure widths
-    const measured = measureWidths(entries, fontName, fontSize, leftCtx, rightCtx);
+    // Measure widths of the gap portion only
+    const measured = measureWidths(gapEntries, fontName, fontSize, gapLeftCtx, gapRightCtx);
 
     solveStatus.textContent = "Solving...";
 
-    // Call WASM solver
+    // Call WASM solver (filtering already done in JS)
     const results = solve({
       entries: measured,
       target_width: gapWidth,
       tolerance: tolerance,
-      known_start: knownStart,
-      known_end: knownEnd,
+      known_start: '',
+      known_end: '',
       mode: mode,
     });
 

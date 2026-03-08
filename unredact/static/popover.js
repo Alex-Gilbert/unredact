@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import {
   popoverEl, fontToolbar, textEditBar, popoverClose,
-  fontSelect, sizeSlider, sizeValue, sizeDown, sizeUp,
+  fontSelect, sizeSlider, sizeValue, sizeDown, sizeUp, sizeFineDown, sizeFineUp,
   posUp, posDown, posLeft, posRight, posReset, posDisplay,
   gapDown, gapUp, gapValue,
   leftTextInput, rightTextInput, redactionMarker, textReset,
@@ -137,8 +137,10 @@ export function initPopover() {
     renderCanvas();
   });
 
-  sizeDown.addEventListener("click", () => adjustSize(-0.5));
-  sizeUp.addEventListener("click", () => adjustSize(0.5));
+  sizeDown.addEventListener("click", () => adjustSize(-1));
+  sizeFineDown.addEventListener("click", () => adjustSize(-0.1));
+  sizeFineUp.addEventListener("click", () => adjustSize(0.1));
+  sizeUp.addEventListener("click", () => adjustSize(1));
 
   posUp.addEventListener("click", () => nudge(0, -1));
   posDown.addEventListener("click", () => nudge(0, 1));

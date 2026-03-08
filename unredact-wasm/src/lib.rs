@@ -47,6 +47,16 @@ pub fn score_font(
     width: u32,
     height: u32,
 ) -> f64 {
+    font::pixel_match::best_ncc_score(page_pixels, rendered_pixels, width, height, 3)
+}
+
+#[wasm_bindgen]
+pub fn score_font_dice(
+    page_pixels: &[u8],
+    rendered_pixels: &[u8],
+    width: u32,
+    height: u32,
+) -> f64 {
     font::pixel_match::best_dice_score(page_pixels, rendered_pixels, width, height, 3)
 }
 

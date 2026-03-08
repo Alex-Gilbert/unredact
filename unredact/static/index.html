@@ -62,9 +62,11 @@
             <span class="toolbar-sep"></span>
             <div class="size-control">
               <span>Size</span>
-              <button id="size-down" class="tb-btn">-</button>
+              <button id="size-down" class="tb-btn" title="-1">-</button>
+              <button id="size-fine-down" class="tb-btn tb-btn-fine" title="-0.1">-.1</button>
               <input type="range" id="size-slider" min="8" max="120" step="0.1">
-              <button id="size-up" class="tb-btn">+</button>
+              <button id="size-fine-up" class="tb-btn tb-btn-fine" title="+0.1">+.1</button>
+              <button id="size-up" class="tb-btn" title="+1">+</button>
               <span id="size-value">32</span>px
             </div>
             <span class="toolbar-sep"></span>
@@ -101,7 +103,7 @@
                   <option value="name" selected>Name</option>
                   <option value="full_name">Full Name</option>
                   <option value="email">Email</option>
-                  <option value="enumerate">Enumerate</option>
+                  <!-- <option value="enumerate">Enumerate</option> -->
                   <option value="word">Word</option>
                 </select>
               </label>
