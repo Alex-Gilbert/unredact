@@ -96,8 +96,6 @@
  * @typedef {Object} AssociatesData
  * @property {Object<string, AssocEntry[]>} names
  * @property {Object<string, Person>} persons
- * @property {string[]} [victim_names]
- * @property {Set<string>} [victim_set]
  */
 
 /**

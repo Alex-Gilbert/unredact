@@ -35,6 +35,7 @@ _docs: dict[str, dict] = {}
 
 STATIC_DIR = Path(__file__).parent / "static"
 DATA_DIR = Path(__file__).parent / "data"
+BUILD_DIR = Path(__file__).parent.parent / "build" / "data"
 
 # Lazy-loaded associates data
 _associates_data: dict | None = None
@@ -42,7 +43,7 @@ _associates_data: dict | None = None
 def _get_associates() -> dict:
     global _associates_data
     if _associates_data is None:
-        associates_path = DATA_DIR / "associates.json"
+        associates_path = BUILD_DIR / "associates.json"
         if associates_path.exists():
             _associates_data = json.loads(associates_path.read_text())
         else:

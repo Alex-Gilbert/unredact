@@ -1,5 +1,5 @@
 // @ts-check
-/** Solve engine — SSE streaming constraint solver with associate matching. */
+/** Solve engine — SSE streaming constraint solver with person name matching. */
 
 import { state } from './state.js';
 import {
@@ -11,7 +11,7 @@ import {
   redactionMarker, escapeHtml,
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
-import { matchAssociates, tierBadgeClass, tierLabel, isVictimMatch, showAssocDetail } from './associates.js';
+import { matchAssociates, tierBadgeClass, tierLabel, showAssocDetail } from './associates.js';
 import { solve } from './wasm.js';
 import { validateCandidates } from './llm.js';
 import { getSetting } from './db.js';
@@ -103,16 +103,34 @@ export async function startSolve() {
     // Load appropriate word list based on mode
     let entries = [];
     if (mode === 'name') {
-      const firsts = await loadDataFile('associate_first_names.txt');
-      const lasts = await loadDataFile('associate_last_names.txt');
-      entries = [...new Set([...firsts, ...lasts])];
+      if (state.associates?.names) {
+        // Use single-word keys from person database (first names, last names, nicknames)
+        entries = Object.keys(state.associates.names).filter(k => !k.includes(' '));
+      } else {
+        // Fall back to generic name lists
+        const firsts = await loadDataFile('first_names.txt');
+        const lasts = await loadDataFile('last_names.txt');
+        entries = [...new Set([...firsts, ...lasts])];
+        solveStatus.textContent = "Using a large generic name list. Consider uploading a person database in Settings for better results.";
+      }
     } else if (mode === 'full_name') {
-      const resp = await fetch('/data/associates.json');
-      const data = await resp.json();
-      // Extract all multi-word name variants
-      entries = Object.keys(data.names).filter(k => k.includes(' '));
+      if (!state.associates?.names) {
+        solveStatus.textContent = "Full Name mode requires a person database. Upload one in Settings.";
+        solveStart.hidden = false;
+        solveStop.hidden = true;
+        return;
+      }
+      entries = Object.keys(state.associates.names).filter(k => k.includes(' '));
     } else if (mode === 'email') {
-      entries = await loadDataFile('emails.txt');
+      const { getEmailList } = await import('./db.js');
+      const emailList = await getEmailList();
+      if (!emailList || emailList.length === 0) {
+        solveStatus.textContent = "Email mode requires an email list. Upload one in Settings.";
+        solveStart.hidden = false;
+        solveStop.hidden = true;
+        return;
+      }
+      entries = emailList;
     } else if (mode === 'word') {
       const plural = solvePlural.checked;
       const vocabSize = parseInt(solveVocab.value) || 0;
@@ -223,16 +241,6 @@ function handleSolveEvent(data, redactionId) {
       <span class="result-text">${escapeHtml(data.text)}</span>
       <span class="result-error">${data.error_px.toFixed(1)}px ${data.source || ""}</span>
     `;
-
-    const victim = isVictimMatch(data.text);
-
-    if (victim) {
-      const vBadge = document.createElement("span");
-      vBadge.className = "assoc-badge victim";
-      vBadge.textContent = "V";
-      vBadge.title = "Matches a known victim name";
-      div.prepend(vBadge);
-    }
 
     if (assocMatches.length > 0) {
       const badge = document.createElement("button");

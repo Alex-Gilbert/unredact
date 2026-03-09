@@ -1,5 +1,5 @@
 // @ts-check
-/** Associate matching — fuzzy name lookup against the Epstein associate database. */
+/** Name matching — fuzzy name lookup against a user-provided person database. */
 
 import { state } from './state.js';
 import { solveKnownStart, solveKnownEnd, popoverEl, escapeHtml } from './dom.js';
@@ -85,29 +85,9 @@ export function tierLabel(tier) {
  * @returns {string}
  */
 export function tierDescription(tier) {
-  if (tier === 1) return "Flight logs -- traveled with Epstein";
-  if (tier === 2) return "Inner circle -- staff, financial, or frequently named";
-  return "Named in Epstein case files";
-}
-
-/**
- * Check if text matches a known victim name.
- * @param {string} text
- * @returns {boolean}
- */
-export function isVictimMatch(text) {
-  const vs = state.associates?.victim_set;
-  if (!vs || vs.size === 0) return false;
-  const key = text.toLowerCase().trim();
-  if (vs.has(key)) return true;
-  const prefix = solveKnownStart.value.toLowerCase().trim();
-  const suffix = solveKnownEnd.value.toLowerCase().trim();
-  if (prefix || suffix) {
-    if (vs.has(prefix + key + suffix)) return true;
-    if (prefix && vs.has(prefix + key)) return true;
-    if (suffix && vs.has(key + suffix)) return true;
-  }
-  return false;
+  if (tier === 1) return "Tier 1";
+  if (tier === 2) return "Tier 2";
+  return "Tier 3";
 }
 
 /**
@@ -122,7 +102,7 @@ export function showAssocDetail(assocMatches, _anchorEl) {
   const popup = document.createElement("div");
   popup.id = "assoc-detail";
 
-  let html = '<div class="assoc-detail-header">Possible associates<button class="assoc-detail-close">X</button></div>';
+  let html = '<div class="assoc-detail-header">Person database matches<button class="assoc-detail-close">X</button></div>';
   html += '<div class="assoc-detail-list">';
 
   for (const m of assocMatches) {
@@ -137,6 +117,7 @@ export function showAssocDetail(assocMatches, _anchorEl) {
   }
 
   html += '</div>';
+  html += '<div class="assoc-detail-disclaimer">Name matches are mechanical, based on pixel-width fit.</div>';
   popup.innerHTML = html;
 
   popoverEl.appendChild(popup);

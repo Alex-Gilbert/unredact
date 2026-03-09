@@ -1,32 +1,36 @@
 # Unredact
 
-**Reveal what's hidden in redacted PDFs.**
+**Guess what might be hiding under redacted text in PDFs.**
 
-Unredact uses computer vision, font-aware constraint solving, and LLM reasoning to figure out what text is hiding under those black bars. Upload a PDF, and it will detect redactions, calculate exactly which strings could fit based on pixel-width constraints, and let you visually verify guesses with a live overlay.
+Unredact is a research tool that uses OCR, font-aware constraint solving, and LLM reasoning to generate plausible guesses for redacted text. Upload a PDF, and it will detect redactions, search for strings that could fit based on approximate pixel-width constraints, and let you visually compare candidates against the original document.
+
+**It does not reveal hidden text.** It produces a ranked list of candidates — some may be correct, many won't be. All results are probabilistic guesses that depend on imperfect font detection, approximate width matching, and heuristic scoring.
 
 Everything runs in the browser — no server required.
+
+Name and Full Name solve modes use generic name dictionaries. You can optionally upload a custom person database in settings to enable person matching and Full Name mode.
 
 <!-- TODO: Replace with actual screenshots -->
 ![Unredact analyzing a redacted PDF](docs/images/hero.png)
 
-![Green overlay text aligning with surrounding visible text](docs/images/overlay-verification.png)
+![Green overlay text compared with surrounding visible text](docs/images/overlay-verification.png)
 
 ## What it does
 
-- **Detects redactions** automatically using computer vision, or manually by clicking
-- **Solves for hidden text** by finding every string that fits the exact pixel width of a redaction, accounting for font metrics and kerning
-- **Ranks results with AI** using Claude to score candidates by contextual fit with surrounding text
-- **Lets you verify visually** by overlaying guessed text in green on the original document — if the characters align, the guess fits
+- **Detects redactions** automatically using image processing, or manually by drawing a selection
+- **Generates candidates** by searching for strings whose approximate pixel width falls within a tolerance of the redacted region, using heuristically detected font metrics
+- **Ranks results with AI** using Claude to score candidates by contextual plausibility with surrounding text
+- **Lets you compare visually** by overlaying candidate text on the original document — alignment suggests a plausible fit, but does not confirm correctness
 
 ## How it works
 
-Unredact combines three techniques:
+Unredact combines three techniques, each of which introduces approximation:
 
-1. **Computer vision** — OCR (Tesseract.js) extracts visible text with character-level bounding boxes. A WASM module detects black rectangles and identifies the document's typeface and size via pixel-level font matching.
+1. **OCR and image processing** — Tesseract.js extracts visible text with character-level bounding boxes. A WASM module detects dark rectangles as potential redactions and attempts to identify the document's typeface and size via pixel-level comparison against bundled fonts. Font detection is a best guess — if the actual font isn't in the bundled set, results will be less accurate.
 
-2. **Constraint solving** — Using the detected font's exact character widths (including kerning pairs), a WASM-compiled branch-and-bound solver enumerates every string that fits the redaction's pixel width within a configurable tolerance.
+2. **Constraint solving** — Using the detected font's character width tables, a WASM-compiled branch-and-bound solver enumerates strings that fit the redaction's pixel width within a configurable tolerance. Results depend on the accuracy of font detection and the tolerance setting.
 
-3. **LLM validation** — Claude reads the surrounding text context and scores each candidate for plausibility, then results are ranked by a composite of width fit and contextual score.
+3. **LLM scoring** — Claude reads the surrounding text context and scores each candidate for plausibility. These scores reflect statistical likelihood, not truth. Results are ranked by a composite of width fit and contextual score.
 
 ```
 PDF ──→ Rasterize ──→ OCR (Tesseract.js) ──→ Font Detection (WASM)
@@ -38,17 +42,17 @@ PDF ──→ Rasterize ──→ OCR (Tesseract.js) ──→ Font Detection (W
                                         Constraint Solver (WASM)
                                                       │
                                                       ▼
-                              Candidates ──→ LLM Validation (Claude API)
+                              Candidates ──→ LLM Scoring (Claude API)
                                                       │
                                                       ▼
-                                               Visual Overlay
+                                              Visual Comparison
 ```
 
 ## Quick start
 
 ### Live version
 
-The app is live at **[unredact.live](https://unredact.live)** — no installation needed. You just need a Claude API key for the LLM validation feature.
+The app is live at **[unredact.live](https://unredact.live)** — no installation needed. You just need a Claude API key for the LLM scoring feature.
 
 ### Run locally
 
@@ -89,7 +93,7 @@ make deploy    # Builds and deploys to Cloudflare Pages
 
 ### 1. Upload a PDF
 
-Drag and drop a redacted PDF onto the page, or use the file picker. The tool will automatically run OCR on every page and detect redactions and fonts.
+Drag and drop a redacted PDF onto the page, or use the file picker. The tool will run OCR on every page and attempt to detect redactions and fonts.
 
 ### 2. Select a redaction
 
@@ -100,8 +104,8 @@ Click on a detected redaction (highlighted on the page). A panel opens with anal
 | Mode | What it searches | Use case |
 |------|-----------------|----------|
 | **Name** | First names or last names from name dictionaries | Redacted names |
-| **Full Name** | Two-word combinations (first + last) | Full name redactions |
-| **Email** | Common email addresses | Redacted email addresses |
+| **Full Name** | Two-word combinations from uploaded person database | Full name redactions (requires person DB) |
+| **Email** | Email addresses from uploaded email dictionary | Redacted email addresses (requires email list) |
 | **Word** | English nouns and adjectives from dictionary | General text redactions |
 | **Enumerate** | All possible character combinations | Short redactions, anything goes |
 
@@ -111,15 +115,43 @@ Click on a detected redaction (highlighted on the page). A panel opens with anal
 - Adjust **tolerance** if results are too narrow or too broad
 - Add **known characters** if you can tell what the first or last letter is
 - For word mode, toggle **plural only** or adjust **vocabulary size**
-- Click **Solve** — results stream in as they're found
+- Click **Solve** — candidates stream in as they're found
 
-### 5. Validate with AI
+### 5. Score with AI
 
-Click **Validate** to have Claude score each candidate based on the surrounding text context. Results are re-ranked by a composite score combining width fit and contextual plausibility. Requires a Claude API key (entered in settings).
+Click **Validate** to have Claude score each candidate based on the surrounding text context. Results are re-ranked by a composite of width fit and contextual plausibility. Requires a Claude API key (entered in settings).
 
-### 6. Verify visually
+### 6. Compare visually
 
-Select a result to see it overlaid in green on the original document. If the green text aligns character-for-character with the surrounding visible text, the guess is a strong match. You can fine-tune font, size, position, and character spacing manually.
+Select a candidate to see it overlaid on the original document. If the text appears to align with surrounding visible characters, it suggests a plausible fit — but visual alignment alone does not prove the guess is correct. You can fine-tune font, size, position, and character spacing manually.
+
+## Person database schema
+
+You can optionally upload a person database (JSON) in settings to enable Full Name mode and person matching in results. The schema:
+
+```json
+{
+  "names": {
+    "lowercased name variant": [
+      { "person_id": "unique-id", "match_type": "full", "tier": 1 }
+    ]
+  },
+  "persons": {
+    "unique-id": { "name": "Display Name", "category": "some-category", "tier": 1 }
+  }
+}
+```
+
+- **names** — Maps lowercased name variants to arrays of person references. `match_type` can be `full`, `first`, `last`, `nickname`, `nickname_full`, or `initial_last`. `tier` is 1-3 (used for sorting and badge display).
+- **persons** — Maps person IDs to display metadata.
+
+Without a person database, Name mode uses generic first/last name dictionaries and Full Name mode is disabled.
+
+An example build script (`scripts/build_associates.py`) is included in the repo. It demonstrates how to generate a person database from a third-party data source ([rhowardstone/Epstein-research-data](https://github.com/rhowardstone/Epstein-research-data)). You can adapt it for any data source that fits the schema above.
+
+### Email dictionary
+
+Email mode requires an uploaded email list — a plain text file with one email address per line. Upload it in settings. An example build script (`scripts/build_emails.py`) is included.
 
 ## Architecture
 
@@ -127,10 +159,10 @@ Unredact runs entirely in the browser as a static site:
 
 - **WASM module** (compiled from Rust) — Constraint solver, redaction detection, font scoring, and text alignment
 - **Tesseract.js** — OCR processing
-- **Claude API** — LLM validation (called directly from the browser with your API key)
+- **Claude API** — LLM scoring (called directly from the browser with your API key)
 - **Vanilla JavaScript** — No build step, ES6 modules, canvas rendering
 
-All data (dictionaries, font metrics, name lists) is bundled as static assets. User settings and API keys are stored locally in IndexedDB.
+Generic dictionaries and font metrics are bundled as static assets. User settings, API keys, and optional person databases are stored locally in IndexedDB.
 
 ```
 Browser
@@ -138,8 +170,8 @@ Browser
   ├── Redaction detection (WASM)
   ├── Font detection (WASM pixel matching)
   ├── Constraint solver (WASM)
-  ├── LLM validation ──→ Claude API
-  └── IndexedDB (settings, API key)
+  ├── LLM scoring ──→ Claude API
+  └── IndexedDB (settings, API key, person DB)
 ```
 
 ## Project structure
@@ -155,7 +187,7 @@ unredact/
 │   │   ├── font_detect.js # Font detection
 │   │   ├── ocr.js         # Tesseract.js integration
 │   │   ├── wasm.js        # WASM module loader
-│   │   ├── llm.js         # LLM validation
+│   │   ├── llm.js         # LLM scoring
 │   │   └── ...            # Other modules
 │   └── data/              # Bundled dictionaries and word lists
 ├── unredact-wasm/         # Rust → WASM module source
@@ -184,7 +216,11 @@ make clean            # Clean build artifacts
 
 ## Disclaimer
 
-Unredact is a research and entertainment tool. It is provided as-is for educational and exploratory purposes only. The results produced by this tool are probabilistic guesses — **nothing it outputs should be treated as verified fact.** All data used (dictionaries, font metrics, name lists) comes from publicly available, open-source sources, and AI-generated scores reflect statistical plausibility, not truth.
+Unredact is a research and entertainment tool. It is provided as-is for educational and exploratory purposes only.
+
+**The results produced by this tool are probabilistic guesses — nothing it outputs should be treated as verified fact.** The tool's accuracy depends on heuristic font detection, approximate width calculations, and statistical language models. Any given result may be completely wrong.
+
+All bundled data (dictionaries, font metrics) comes from publicly available, open-source sources. AI-generated scores reflect statistical plausibility, not truth. Person name matches are mechanical (based on pixel-width fit) and do not imply any connection to wrongdoing. User-uploaded person databases are stored locally and never transmitted.
 
 This tool is not intended for use in legal proceedings, journalism, law enforcement, or any context where unverified information could cause harm. **Do not use this tool to circumvent lawful redactions, violate privacy, or break any applicable laws.** You are solely responsible for how you use it.
 

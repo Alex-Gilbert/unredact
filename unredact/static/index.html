@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>UNREDACT</h1>
-    <p class="subtitle">Epstein Files Redaction Analysis</p>
+    <p class="subtitle">PDF Redaction Analysis Tool</p>
     <button id="settings-btn" class="settings-btn" title="Settings">&#9881;</button>
   </header>
 
@@ -22,7 +22,9 @@
 
       <div id="disclaimer">
         <h3>Disclaimer</h3>
-        <p>Unredact is a <strong>research and entertainment tool</strong>. It is provided as-is for educational and exploratory purposes only. The results produced by this tool are probabilistic guesses &mdash; <strong>nothing it outputs should be treated as verified fact.</strong></p>
+        <p>Unredact is a <strong>research and entertainment tool</strong>. It is provided as-is for educational and exploratory purposes only.</p>
+        <p><strong>This tool does not reveal hidden text.</strong> It produces a ranked list of candidates &mdash; some may be correct, many won&rsquo;t be. All results are probabilistic guesses that depend on imperfect font detection, approximate width matching, and heuristic scoring. <strong>Any given result may be completely wrong.</strong></p>
+        <p>Name solve modes use generic name dictionaries. You may optionally upload a custom person database in settings. Person name matches are mechanical, based on pixel-width fit. <strong>Name matches do not imply any connection to wrongdoing.</strong></p>
         <p>This tool is <strong>not intended for use in legal proceedings, journalism, law enforcement</strong>, or any context where unverified information could cause harm. <strong>Do not use this tool to circumvent lawful redactions, violate privacy, or break any applicable laws.</strong> You are solely responsible for how you use it.</p>
         <p>The author makes no claims of accuracy, completeness, or fitness for any particular purpose, and accepts no liability for misuse or for any consequences arising from the use of this tool.</p>
         <button id="disclaimer-accept">I Understand &amp; Accept</button>
@@ -221,6 +223,26 @@
                 Use only my fonts
             </label>
             <p class="setting-hint" id="default-fonts-hint">Only use your uploaded fonts for detection and solving.</p>
+        </div>
+        <div class="setting-group">
+            <label>Person Database</label>
+            <p class="setting-hint">Upload a JSON file matching the <a href="https://github.com/Alex-Gilbert/unredact#person-database-schema" target="_blank" rel="noopener">person database schema</a> to enable Full Name mode and person matching in results. See <a href="https://github.com/Alex-Gilbert/unredact" target="_blank" rel="noopener">the GitHub repo</a> for additional information and an example build script.</p>
+            <div class="font-upload-row">
+                <input type="file" id="person-db-input" accept=".json" hidden>
+                <button id="person-db-upload" class="settings-action-btn">Upload Database</button>
+                <button id="person-db-clear" class="settings-action-btn secondary" hidden>Remove</button>
+            </div>
+            <span id="person-db-status" class="api-key-status"></span>
+        </div>
+        <div class="setting-group">
+            <label>Email Dictionary</label>
+            <p class="setting-hint">Upload a plain text file with one email address per line to enable Email solve mode.</p>
+            <div class="font-upload-row">
+                <input type="file" id="email-list-input" accept=".txt,.csv" hidden>
+                <button id="email-list-upload" class="settings-action-btn">Upload Email List</button>
+                <button id="email-list-clear" class="settings-action-btn secondary" hidden>Remove</button>
+            </div>
+            <span id="email-list-status" class="api-key-status"></span>
         </div>
         <div class="kofi-link">
           <div id="kofi-settings"></div>

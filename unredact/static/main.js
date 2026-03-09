@@ -227,13 +227,17 @@ function refreshFontSelect() {
 
 async function loadAssociates() {
   try {
-    const resp = await fetch("/data/associates.json");
-    state.associates = await resp.json();
-    state.associates.victim_set = new Set(state.associates.victim_names || []);
-    console.log(`Loaded ${Object.keys(state.associates.names).length} associate lookups, ${state.associates.victim_set.size} victim names`);
+    const { getPersonDb } = await import('./db.js');
+    const data = await getPersonDb();
+    if (data && data.names && data.persons) {
+      state.associates = data;
+      console.log(`Loaded person database: ${Object.keys(data.names).length} name lookups`);
+    } else {
+      state.associates = null;
+    }
   } catch (e) {
-    console.warn("Failed to load associates data:", e);
-    state.associates = { names: {}, persons: {}, victim_set: new Set() };
+    console.warn("Failed to load person database:", e);
+    state.associates = null;
   }
 }
 
@@ -1065,6 +1069,9 @@ initSettings({
   onFontRemoved(fontId) {
     state.fonts = state.fonts.filter(f => f.id !== fontId);
     refreshFontSelect();
+  },
+  onPersonDbChanged(data) {
+    state.associates = data;
   },
   onDefaultFontsToggled(disabled) {
     state.defaultFontsDisabled = disabled;
