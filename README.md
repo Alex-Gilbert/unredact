@@ -147,6 +147,8 @@ You can optionally upload a person database (JSON) in settings to enable Full Na
 
 Without a person database, Name mode uses generic first/last name dictionaries and Full Name mode is disabled.
 
+An example build script (`scripts/build_associates.py`) is included in the repo. It demonstrates how to generate a person database from a third-party data source ([rhowardstone/Epstein-research-data](https://github.com/rhowardstone/Epstein-research-data)). You can adapt it for any data source that fits the schema above.
+
 ## Architecture
 
 Unredact runs entirely in the browser as a static site:
