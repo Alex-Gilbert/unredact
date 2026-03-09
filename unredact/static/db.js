@@ -246,3 +246,19 @@ export async function getUserFonts() {
         req.onerror = () => reject(req.error);
     });
 }
+
+// --- Person Database ---
+
+/** @param {object} data - The full person database JSON object */
+export async function savePersonDb(data) {
+    return setSetting('person_db', data);
+}
+
+/** @returns {Promise<object|null>} */
+export async function getPersonDb() {
+    return getSetting('person_db');
+}
+
+export async function deletePersonDb() {
+    return setSetting('person_db', null);
+}

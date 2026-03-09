@@ -227,12 +227,17 @@ function refreshFontSelect() {
 
 async function loadAssociates() {
   try {
-    const resp = await fetch("/data/associates.json");
-    state.associates = await resp.json();
-    console.log(`Loaded ${Object.keys(state.associates.names).length} associate lookups`);
+    const { getPersonDb } = await import('./db.js');
+    const data = await getPersonDb();
+    if (data && data.names && data.persons) {
+      state.associates = data;
+      console.log(`Loaded person database: ${Object.keys(data.names).length} name lookups`);
+    } else {
+      state.associates = null;
+    }
   } catch (e) {
-    console.warn("Failed to load associates data:", e);
-    state.associates = { names: {}, persons: {} };
+    console.warn("Failed to load person database:", e);
+    state.associates = null;
   }
 }
 

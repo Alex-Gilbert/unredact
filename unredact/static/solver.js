@@ -103,14 +103,17 @@ export async function startSolve() {
     // Load appropriate word list based on mode
     let entries = [];
     if (mode === 'name') {
-      const firsts = await loadDataFile('associate_first_names.txt');
-      const lasts = await loadDataFile('associate_last_names.txt');
+      const firsts = await loadDataFile('first_names.txt');
+      const lasts = await loadDataFile('last_names.txt');
       entries = [...new Set([...firsts, ...lasts])];
     } else if (mode === 'full_name') {
-      const resp = await fetch('/data/associates.json');
-      const data = await resp.json();
-      // Extract all multi-word name variants
-      entries = Object.keys(data.names).filter(k => k.includes(' '));
+      if (!state.associates?.names) {
+        solveStatus.textContent = "Full Name mode requires a person database. Upload one in Settings.";
+        solveStart.hidden = false;
+        solveStop.hidden = true;
+        return;
+      }
+      entries = Object.keys(state.associates.names).filter(k => k.includes(' '));
     } else if (mode === 'email') {
       entries = await loadDataFile('emails.txt');
     } else if (mode === 'word') {
