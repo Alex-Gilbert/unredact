@@ -45,7 +45,7 @@ function renderUserFonts(fonts, container, onDelete) {
 
 /**
  * Initialize settings UI — call once from main.js.
- * @param {{ onFontAdded?: (font: {id: string, name: string}) => void, onFontRemoved?: (fontId: string) => void }} [callbacks]
+ * @param {{ onFontAdded?: (font: {id: string, name: string}) => void, onFontRemoved?: (fontId: string) => void, onDefaultFontsToggled?: (disabled: boolean) => void }} [callbacks]
  */
 export async function initSettings(callbacks) {
     const settingsBtn = document.getElementById('settings-btn');
@@ -106,6 +106,32 @@ export async function initSettings(callbacks) {
     const fontUploadInput = document.getElementById('font-upload-input');
     const userFontList = document.getElementById('user-font-list');
 
+    // Default fonts toggle
+    const defaultFontsCheckbox = document.getElementById('disable-default-fonts');
+
+    function updateToggleState(userFontCount) {
+        defaultFontsCheckbox.disabled = userFontCount === 0;
+        if (userFontCount === 0 && defaultFontsCheckbox.checked) {
+            defaultFontsCheckbox.checked = false;
+            setSetting('defaultFontsDisabled', false);
+            if (callbacks?.onDefaultFontsToggled) callbacks.onDefaultFontsToggled(false);
+        }
+    }
+
+    // Load saved toggle state
+    const savedDisabled = await getSetting('defaultFontsDisabled');
+    const existingFonts = await getUserFonts();
+    if (savedDisabled && existingFonts.length > 0) {
+        defaultFontsCheckbox.checked = true;
+    }
+    updateToggleState(existingFonts.length);
+
+    defaultFontsCheckbox.addEventListener('change', async () => {
+        const disabled = defaultFontsCheckbox.checked;
+        await setSetting('defaultFontsDisabled', disabled);
+        if (callbacks?.onDefaultFontsToggled) callbacks.onDefaultFontsToggled(disabled);
+    });
+
     async function handleDelete(f) {
         await deleteUserFont(f.fontId);
         for (const face of document.fonts) {
@@ -113,11 +139,11 @@ export async function initSettings(callbacks) {
         }
         const fonts = await getUserFonts();
         renderUserFonts(fonts, userFontList, handleDelete);
+        updateToggleState(fonts.length);
         if (callbacks?.onFontRemoved) callbacks.onFontRemoved(f.fontId);
     }
 
     // Render existing user fonts
-    const existingFonts = await getUserFonts();
     renderUserFonts(existingFonts, userFontList, handleDelete);
 
     fontUploadBtn.addEventListener('click', () => fontUploadInput.click());
@@ -137,6 +163,7 @@ export async function initSettings(callbacks) {
         // Update list
         const fonts = await getUserFonts();
         renderUserFonts(fonts, userFontList, handleDelete);
+        updateToggleState(fonts.length);
         fontUploadInput.value = '';
 
         if (callbacks?.onFontAdded) callbacks.onFontAdded({ id: fontId, name });
