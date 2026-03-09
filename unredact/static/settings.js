@@ -1,5 +1,5 @@
 // settings.js — API key and preferences management
-import { getSetting, setSetting, saveUserFont, getUserFonts, deleteUserFont, savePersonDb, getPersonDb, deletePersonDb } from './db.js';
+import { getSetting, setSetting, saveUserFont, getUserFonts, deleteUserFont, savePersonDb, getPersonDb, deletePersonDb, saveEmailList, getEmailList, deleteEmailList } from './db.js';
 
 export async function getApiKey() {
     return getSetting('anthropic_api_key');
@@ -215,5 +215,48 @@ export async function initSettings(callbacks) {
         personDbStatus.className = 'api-key-status';
         personDbClear.hidden = true;
         if (callbacks?.onPersonDbChanged) callbacks.onPersonDbChanged(null);
+    });
+
+    // Email dictionary upload
+    const emailInput = document.getElementById('email-list-input');
+    const emailUpload = document.getElementById('email-list-upload');
+    const emailClear = document.getElementById('email-list-clear');
+    const emailStatus = document.getElementById('email-list-status');
+
+    const existingEmails = await getEmailList();
+    if (existingEmails?.length) {
+        emailStatus.textContent = `Loaded: ${existingEmails.length} emails`;
+        emailStatus.className = 'api-key-status saved';
+        emailClear.hidden = false;
+    }
+
+    emailUpload.addEventListener('click', () => emailInput.click());
+    emailInput.addEventListener('change', async () => {
+        const file = emailInput.files[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const emails = text.split('\n').map(l => l.trim()).filter(l => l && l.includes('@'));
+            if (emails.length === 0) {
+                emailStatus.textContent = 'No valid email addresses found in file';
+                emailStatus.className = 'api-key-status error';
+                return;
+            }
+            await saveEmailList(emails);
+            emailStatus.textContent = `Loaded: ${emails.length} emails`;
+            emailStatus.className = 'api-key-status saved';
+            emailClear.hidden = false;
+            emailInput.value = '';
+        } catch (e) {
+            emailStatus.textContent = 'Error: ' + e.message;
+            emailStatus.className = 'api-key-status error';
+        }
+    });
+
+    emailClear.addEventListener('click', async () => {
+        await deleteEmailList();
+        emailStatus.textContent = 'Email list removed';
+        emailStatus.className = 'api-key-status';
+        emailClear.hidden = true;
     });
 }

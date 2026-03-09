@@ -105,7 +105,7 @@ Click on a detected redaction (highlighted on the page). A panel opens with anal
 |------|-----------------|----------|
 | **Name** | First names or last names from name dictionaries | Redacted names |
 | **Full Name** | Two-word combinations from uploaded person database | Full name redactions (requires person DB) |
-| **Email** | Common email addresses | Redacted email addresses |
+| **Email** | Email addresses from uploaded email dictionary | Redacted email addresses (requires email list) |
 | **Word** | English nouns and adjectives from dictionary | General text redactions |
 | **Enumerate** | All possible character combinations | Short redactions, anything goes |
 
@@ -148,6 +148,10 @@ You can optionally upload a person database (JSON) in settings to enable Full Na
 Without a person database, Name mode uses generic first/last name dictionaries and Full Name mode is disabled.
 
 An example build script (`scripts/build_associates.py`) is included in the repo. It demonstrates how to generate a person database from a third-party data source ([rhowardstone/Epstein-research-data](https://github.com/rhowardstone/Epstein-research-data)). You can adapt it for any data source that fits the schema above.
+
+### Email dictionary
+
+Email mode requires an uploaded email list — a plain text file with one email address per line. Upload it in settings. An example build script (`scripts/build_emails.py`) is included.
 
 ## Architecture
 

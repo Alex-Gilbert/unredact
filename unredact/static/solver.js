@@ -115,7 +115,15 @@ export async function startSolve() {
       }
       entries = Object.keys(state.associates.names).filter(k => k.includes(' '));
     } else if (mode === 'email') {
-      entries = await loadDataFile('emails.txt');
+      const { getEmailList } = await import('./db.js');
+      const emailList = await getEmailList();
+      if (!emailList || emailList.length === 0) {
+        solveStatus.textContent = "Email mode requires an email list. Upload one in Settings.";
+        solveStart.hidden = false;
+        solveStop.hidden = true;
+        return;
+      }
+      entries = emailList;
     } else if (mode === 'word') {
       const plural = solvePlural.checked;
       const vocabSize = parseInt(solveVocab.value) || 0;

@@ -262,3 +262,19 @@ export async function getPersonDb() {
 export async function deletePersonDb() {
     return setSetting('person_db', null);
 }
+
+// --- Email Dictionary ---
+
+/** @param {string[]} emails - Array of email addresses */
+export async function saveEmailList(emails) {
+    return setSetting('email_list', emails);
+}
+
+/** @returns {Promise<string[]|null>} */
+export async function getEmailList() {
+    return getSetting('email_list');
+}
+
+export async function deleteEmailList() {
+    return setSetting('email_list', null);
+}

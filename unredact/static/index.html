@@ -234,6 +234,16 @@
             </div>
             <span id="person-db-status" class="api-key-status"></span>
         </div>
+        <div class="setting-group">
+            <label>Email Dictionary</label>
+            <p class="setting-hint">Upload a plain text file with one email address per line to enable Email solve mode.</p>
+            <div class="font-upload-row">
+                <input type="file" id="email-list-input" accept=".txt,.csv" hidden>
+                <button id="email-list-upload" class="settings-action-btn">Upload Email List</button>
+                <button id="email-list-clear" class="settings-action-btn secondary" hidden>Remove</button>
+            </div>
+            <span id="email-list-status" class="api-key-status"></span>
+        </div>
         <div class="kofi-link">
           <div id="kofi-settings"></div>
         </div>
