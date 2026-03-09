@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import {
   popoverEl, fontToolbar, textEditBar, popoverClose,
-  fontSelect, sizeSlider, sizeValue, sizeDown, sizeUp,
+  fontSelect, sizeSlider, sizeValue, sizeDown, sizeUp, sizeFineDown, sizeFineUp,
   posUp, posDown, posLeft, posRight, posReset, posDisplay,
   gapDown, gapUp, gapValue,
   leftTextInput, rightTextInput, redactionMarker, textReset,
@@ -63,7 +63,7 @@ export function openPopover(id) {
   fontToolbar.hidden = false;
   fontSelect.value = r.overrides.fontId;
   sizeSlider.value = String(r.overrides.fontSize);
-  sizeValue.textContent = String(r.overrides.fontSize);
+  sizeValue.textContent = fmtSize(r.overrides.fontSize);
   gapValue.textContent = String(Math.round(r.overrides.gapWidth));
   updatePosDisplay();
 
@@ -72,6 +72,11 @@ export function openPopover(id) {
   rightTextInput.value = r.overrides.rightText;
   redactionMarker.value = r.preview || "";
   redactionMarker.className = r.preview ? "redaction-marker preview" : "redaction-marker";
+}
+
+/** Format font size for display — drop ".0" for whole numbers. */
+function fmtSize(s) {
+  return Number.isInteger(s) ? String(s) : s.toFixed(1);
 }
 
 export function closePopover() {
@@ -84,15 +89,15 @@ export function closePopover() {
 export function updatePosDisplay() {
   const r = state.redactions[state.activeRedaction];
   if (!r?.overrides) return;
-  posDisplay.textContent = `${Math.round(r.overrides.offsetX)}, ${Math.round(r.overrides.offsetY)}`;
+  posDisplay.textContent = `${r.overrides.offsetX.toFixed(1)}, ${r.overrides.offsetY.toFixed(1)}`;
 }
 
 function adjustSize(delta) {
   const r = state.redactions[state.activeRedaction];
   if (!r?.overrides) return;
-  r.overrides.fontSize = Math.max(8, Math.min(120, r.overrides.fontSize + delta));
+  r.overrides.fontSize = Math.max(8, Math.min(120, +(r.overrides.fontSize + delta).toFixed(1)));
   sizeSlider.value = String(r.overrides.fontSize);
-  sizeValue.textContent = String(r.overrides.fontSize);
+  sizeValue.textContent = fmtSize(r.overrides.fontSize);
   renderCanvas();
 }
 
@@ -127,12 +132,14 @@ export function initPopover() {
   sizeSlider.addEventListener("input", () => {
     const r = state.redactions[state.activeRedaction];
     if (!r?.overrides) return;
-    r.overrides.fontSize = parseInt(sizeSlider.value);
-    sizeValue.textContent = sizeSlider.value;
+    r.overrides.fontSize = parseFloat(sizeSlider.value);
+    sizeValue.textContent = fmtSize(r.overrides.fontSize);
     renderCanvas();
   });
 
   sizeDown.addEventListener("click", () => adjustSize(-1));
+  sizeFineDown.addEventListener("click", () => adjustSize(-0.1));
+  sizeFineUp.addEventListener("click", () => adjustSize(0.1));
   sizeUp.addEventListener("click", () => adjustSize(1));
 
   posUp.addEventListener("click", () => nudge(0, -1));

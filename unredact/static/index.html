@@ -4,12 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Unredact</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <header>
     <h1>UNREDACT</h1>
     <p class="subtitle">Epstein Files Redaction Analysis</p>
+    <button id="settings-btn" class="settings-btn" title="Settings">&#9881;</button>
   </header>
 
   <main>
@@ -17,6 +18,18 @@
       <div id="drop-zone">
         <p>Drop a PDF here or click to upload</p>
         <input type="file" id="file-input" accept=".pdf" hidden>
+      </div>
+
+      <div id="disclaimer">
+        <h3>Disclaimer</h3>
+        <p>Unredact is a <strong>research and entertainment tool</strong>. It is provided as-is for educational and exploratory purposes only. The results produced by this tool are probabilistic guesses &mdash; <strong>nothing it outputs should be treated as verified fact.</strong></p>
+        <p>This tool is <strong>not intended for use in legal proceedings, journalism, law enforcement</strong>, or any context where unverified information could cause harm. <strong>Do not use this tool to circumvent lawful redactions, violate privacy, or break any applicable laws.</strong> You are solely responsible for how you use it.</p>
+        <p>The author makes no claims of accuracy, completeness, or fitness for any particular purpose, and accepts no liability for misuse or for any consequences arising from the use of this tool.</p>
+        <button id="disclaimer-accept">I Understand &amp; Accept</button>
+        <div class="kofi-link">
+          <p>If Unredact has been useful or interesting to you, feel free to buy me a coffee. No obligation &mdash; this project is free and always will be.</p>
+          <div id="kofi-disclaimer"></div>
+        </div>
       </div>
     </section>
 
@@ -60,9 +73,11 @@
             <span class="toolbar-sep"></span>
             <div class="size-control">
               <span>Size</span>
-              <button id="size-down" class="tb-btn">-</button>
-              <input type="range" id="size-slider" min="8" max="120" step="1">
-              <button id="size-up" class="tb-btn">+</button>
+              <button id="size-down" class="tb-btn" title="-1">-</button>
+              <button id="size-fine-down" class="tb-btn tb-btn-fine" title="-0.1">-.1</button>
+              <input type="range" id="size-slider" min="8" max="120" step="0.1">
+              <button id="size-fine-up" class="tb-btn tb-btn-fine" title="+0.1">+.1</button>
+              <button id="size-up" class="tb-btn" title="+1">+</button>
               <span id="size-value">32</span>px
             </div>
             <span class="toolbar-sep"></span>
@@ -99,7 +114,7 @@
                   <option value="name" selected>Name</option>
                   <option value="full_name">Full Name</option>
                   <option value="email">Email</option>
-                  <option value="enumerate">Enumerate</option>
+                  <!-- <option value="enumerate">Enumerate</option> -->
                   <option value="word">Word</option>
                 </select>
               </label>
@@ -113,8 +128,8 @@
               </label>
               <label>
                 Tolerance
-                <input type="range" id="solve-tolerance" min="0" max="5" step="0.5" value="0">
-                <span id="solve-tol-value">0</span>px
+                <input type="range" id="solve-tolerance" min="0" max="5" step="0.5" value="1">
+                <span id="solve-tol-value">1</span>px
               </label>
               <label id="filter-label" hidden>
                 Word filter
@@ -176,7 +191,52 @@
     </section>
   </main>
 
+  <div id="settings-modal" class="modal-backdrop" hidden>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button id="settings-close" class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="setting-group">
+          <label for="api-key-input">Anthropic API Key</label>
+          <div class="api-key-row">
+            <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+            <button id="api-key-save" class="settings-action-btn">Save</button>
+            <button id="api-key-clear" class="settings-action-btn secondary">Clear</button>
+          </div>
+          <span id="api-key-status" class="api-key-status"></span>
+          <p class="setting-hint">Your API key is stored locally in your browser and never sent to any server except Anthropic's API.</p>
+        </div>
+        <div class="setting-group">
+            <label>Custom Fonts</label>
+            <p class="setting-hint">Upload .ttf or .otf font files for detection and rendering.</p>
+            <div class="font-upload-row">
+                <input type="file" id="font-upload-input" accept=".ttf,.otf,.woff,.woff2" hidden>
+                <button id="font-upload-btn" class="settings-action-btn">Upload Font</button>
+            </div>
+            <div id="user-font-list"></div>
+            <label class="default-fonts-toggle" id="default-fonts-toggle-label">
+                <input type="checkbox" id="disable-default-fonts">
+                Use only my fonts
+            </label>
+            <p class="setting-hint" id="default-fonts-hint">Only use your uploaded fonts for detection and solving.</p>
+        </div>
+        <div class="kofi-link">
+          <div id="kofi-settings"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast-container"></div>
-  <script type="module" src="/static/main.js"></script>
+  <script src="https://ko-fi.com/widgets/widget_2.js"></script>
+  <script>
+    kofiwidget2.init('Support me on Ko-fi', '#42a5f5', 'apgcodes');
+    var kofiHTML = kofiwidget2.getHTML();
+    document.getElementById('kofi-disclaimer').innerHTML = kofiHTML;
+    document.getElementById('kofi-settings').innerHTML = kofiHTML;
+  </script>
+  <script type="module" src="/main.js"></script>
 </body>
 </html>
