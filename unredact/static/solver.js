@@ -1,5 +1,5 @@
 // @ts-check
-/** Solve engine — SSE streaming constraint solver with associate matching. */
+/** Solve engine — SSE streaming constraint solver with person name matching. */
 
 import { state } from './state.js';
 import {
@@ -11,7 +11,7 @@ import {
   redactionMarker, escapeHtml,
 } from './dom.js';
 import { renderCanvas } from './canvas.js';
-import { matchAssociates, tierBadgeClass, tierLabel, isVictimMatch, showAssocDetail } from './associates.js';
+import { matchAssociates, tierBadgeClass, tierLabel, showAssocDetail } from './associates.js';
 import { solve } from './wasm.js';
 import { validateCandidates } from './llm.js';
 import { getSetting } from './db.js';
@@ -223,16 +223,6 @@ function handleSolveEvent(data, redactionId) {
       <span class="result-text">${escapeHtml(data.text)}</span>
       <span class="result-error">${data.error_px.toFixed(1)}px ${data.source || ""}</span>
     `;
-
-    const victim = isVictimMatch(data.text);
-
-    if (victim) {
-      const vBadge = document.createElement("span");
-      vBadge.className = "assoc-badge victim";
-      vBadge.textContent = "V";
-      vBadge.title = "Matches a known victim name";
-      div.prepend(vBadge);
-    }
 
     if (assocMatches.length > 0) {
       const badge = document.createElement("button");

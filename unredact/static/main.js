@@ -229,11 +229,10 @@ async function loadAssociates() {
   try {
     const resp = await fetch("/data/associates.json");
     state.associates = await resp.json();
-    state.associates.victim_set = new Set(state.associates.victim_names || []);
-    console.log(`Loaded ${Object.keys(state.associates.names).length} associate lookups, ${state.associates.victim_set.size} victim names`);
+    console.log(`Loaded ${Object.keys(state.associates.names).length} associate lookups`);
   } catch (e) {
     console.warn("Failed to load associates data:", e);
-    state.associates = { names: {}, persons: {}, victim_set: new Set() };
+    state.associates = { names: {}, persons: {} };
   }
 }
 

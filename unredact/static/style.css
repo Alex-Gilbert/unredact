@@ -620,25 +620,18 @@ main {
 }
 
 .assoc-badge.tier-1 {
-  background: var(--red);
+  background: var(--blue);
   color: #fff;
 }
 
 .assoc-badge.tier-2 {
-  background: var(--orange);
+  background: #5c7a99;
   color: #fff;
 }
 
 .assoc-badge.tier-3 {
-  background: var(--yellow);
-  color: #000;
-}
-
-.assoc-badge.victim {
-  background: var(--purple);
-  color: #fff;
-  cursor: default;
-  pointer-events: none;
+  background: #4a5568;
+  color: #ccc;
 }
 
 /* Associate detail popup */
@@ -717,6 +710,16 @@ main {
   color: var(--text-muted);
   font-size: 0.7rem;
   margin-top: 2px;
+}
+
+.assoc-detail-disclaimer {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-style: italic;
+  text-align: center;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* Font toolbar */
