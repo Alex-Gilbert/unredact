@@ -12,6 +12,14 @@ import { renderCanvas } from './canvas.js';
 import { applyTransform, screenToDoc, hitTestRedaction, initViewport } from './viewport.js';
 import { openPopover, closePopover, setOnPopoverClose, updatePosDisplay, initPopover } from './popover.js';
 import { stopSolve, acceptSolution, initSolver } from './solver.js';
+import { initSettings } from './settings.js';
+import { loadPdf, renderPage } from './pdf.js';
+import { initOcr, ocrPage, cropImageData, maskBoxRGBA } from './ocr.js';
+import { initWasm, detectRedactions, spotRedaction } from './wasm.js';
+import { detectFontMasked, detectFontMarquee, cropToGrayscale } from './font_detect.js';
+import { identifyBoundaryText } from './llm.js';
+import { getSetting } from './db.js';
+import { initMarquee, clearMarquee, marquee } from './marquee.js';
 
 
 // ── Sheet snap management ──
@@ -161,37 +169,65 @@ mobileQuery.addEventListener('change', handleLayoutChange);
 // ── Font loading ──
 
 async function loadFonts() {
-  const resp = await fetch("/api/fonts");
+  // Load bundled font manifest and register each WOFF2 via FontFace
+  const resp = await fetch("/fonts/manifest.json");
   const data = await resp.json();
-  state.fonts = data.fonts;
 
-  const promises = state.fonts
-    .filter((f) => f.available)
-    .map(async (f) => {
-      const face = new FontFace(f.name, `url(/api/font/${f.id})`);
-      try {
-        const loaded = await face.load();
-        document.fonts.add(loaded);
-      } catch (e) {
-        console.warn(`Failed to load font ${f.name}:`, e);
-      }
-    });
+  state.fonts = [];
+  state.defaultFontsDisabled = false;
+  const loadPromises = data.fonts.map(async (f) => {
+    const face = new FontFace(f.name, `url(/fonts/${f.file})`);
+    try {
+      const loaded = await face.load();
+      document.fonts.add(loaded);
+      state.fonts.push({ ...f, available: true, loaded: true, source: 'default' });
+    } catch (e) {
+      console.warn(`Failed to load font ${f.name}:`, e);
+      state.fonts.push({ ...f, available: false, loaded: false, source: 'default' });
+    }
+  });
+  await Promise.all(loadPromises);
 
-  await Promise.all(promises);
+  // Load user-uploaded fonts from IndexedDB
+  const { getUserFonts } = await import('./db.js');
+  const userFonts = await getUserFonts();
+  for (const uf of userFonts) {
+    const face = new FontFace(uf.name, await uf.blob.arrayBuffer());
+    try {
+      const loaded = await face.load();
+      document.fonts.add(loaded);
+      state.fonts.push({ id: uf.fontId, name: uf.name, available: true, source: 'user' });
+    } catch (e) {
+      console.warn(`Failed to load user font ${uf.name}:`, e);
+    }
+  }
+
+  // Apply "disable default fonts" setting
+  const disabled = await getSetting('defaultFontsDisabled');
+  if (disabled) {
+    state.defaultFontsDisabled = true;
+    for (const f of state.fonts) {
+      if (f.source !== 'user') f.available = false;
+    }
+  }
+
   state.fontsReady = true;
+  refreshFontSelect();
+}
 
+function refreshFontSelect() {
   fontSelect.innerHTML = "";
   for (const f of state.fonts.filter(f => f.available)) {
     const opt = document.createElement("option");
     opt.value = f.id;
-    opt.textContent = f.name;
+    opt.textContent = f.equivalent ? `${f.name} (≈ ${f.equivalent})` : f.name;
     fontSelect.appendChild(opt);
   }
 }
 
 async function loadAssociates() {
   try {
-    const resp = await fetch("/api/associates");
+    const resp = await fetch("/data/associates.json");
     state.associates = await resp.json();
     state.associates.victim_set = new Set(state.associates.victim_names || []);
     console.log(`Loaded ${Object.keys(state.associates.names).length} associate lookups, ${state.associates.victim_set.size} victim names`);
@@ -200,6 +236,30 @@ async function loadAssociates() {
     state.associates = { names: {}, persons: {}, victim_set: new Set() };
   }
 }
+
+// ── Disclaimer acceptance ──
+
+const disclaimerEl = document.getElementById("disclaimer");
+const disclaimerBtn = document.getElementById("disclaimer-accept");
+const DISCLAIMER_KEY = "unredact-disclaimer-accepted";
+
+function applyDisclaimerState() {
+  if (localStorage.getItem(DISCLAIMER_KEY)) {
+    disclaimerEl.classList.add("accepted");
+    disclaimerBtn.hidden = true;
+    dropZone.classList.remove("disabled");
+    document.querySelectorAll(".doc-resume-btn").forEach(b => b.disabled = false);
+  } else {
+    dropZone.classList.add("disabled");
+  }
+}
+
+disclaimerBtn.addEventListener("click", () => {
+  localStorage.setItem(DISCLAIMER_KEY, "1");
+  applyDisclaimerState();
+});
+
+applyDisclaimerState();
 
 // ── Upload & drag-drop ──
 
@@ -219,92 +279,182 @@ fileInput.addEventListener("change", () => {
 });
 
 async function uploadFile(file) {
-  uploadSection.innerHTML = '<p class="loading">Uploading document...</p>';
+  uploadSection.innerHTML = '<p class="loading">Loading document...</p>';
 
+  // Initialize modules in parallel with font/associate loading
   const fontPromise = loadFonts();
   const assocPromise = loadAssociates();
+  const wasmPromise = initWasm();
+  const ocrPromise = initOcr();
 
-  const form = new FormData();
-  form.append("file", file);
-  const resp = await fetch("/api/upload", { method: "POST", body: form });
-  const data = await resp.json();
+  // Load the PDF
+  const buffer = await file.arrayBuffer();
+  const { pageCount, doc } = await loadPdf(buffer);
 
-  state.docId = data.doc_id;
-  state.pageCount = data.page_count;
+  state.docId = crypto.randomUUID();
+  state.pageCount = pageCount;
   state.currentPage = 1;
+  state.pdfDoc = doc;
+  state.pageImages = {};
+  state.ocrData = {};
 
-  await Promise.all([fontPromise, assocPromise]);
+  await Promise.all([fontPromise, assocPromise, wasmPromise, ocrPromise]);
 
   uploadSection.hidden = true;
   viewerSection.hidden = false;
+  if (detectBtn) detectBtn.disabled = false;
 
-  // Load the first page image and controls immediately
+  // Render and display the first page
   await loadPage(1);
-
-  // Start background OCR via SSE
-  startOcrSSE();
 }
 
 /**
- * Open an SSE connection to the analyze endpoint. As each page completes,
- * reload its redaction data (which now includes pre-computed analysis).
+ * Run client-side redaction detection and analysis on all pages.
  */
-function startAnalysisSSE() {
-  const es = new EventSource(`/api/doc/${state.docId}/analyze`);
+async function runAnalysis() {
   showToast("Analyzing document...");
 
-  es.addEventListener("message", (e) => {
-    /** @type {any} */
-    const data = JSON.parse(e.data);
+  const apiKey = await getSetting('anthropic_api_key');
 
-    if (data.event === "page_complete") {
-      // Reload the page data to pick up pre-computed analysis
-      loadPageData(data.page);
-    } else if (data.event === "error") {
-      showToast(`Page ${data.page}: ${data.message}`, "error");
-    } else if (data.event === "done") {
-      es.close();
-      showToast("Analysis complete");
-      if (detectBtn) {
-        detectBtn.disabled = false;
-        detectBtn.textContent = "Detect Redactions";
+  for (let page = 1; page <= state.pageCount; page++) {
+    try {
+      // Ensure page is rendered and OCR'd
+      if (!state.pageImages[page]) {
+        const result = await renderPage(state.pdfDoc, page);
+        const blobUrl = URL.createObjectURL(result.blob);
+        state.pageImages[page] = { imageData: result.imageData, blob: result.blob, blobUrl };
       }
-    }
-  });
+      if (!state.ocrData[page]) {
+        state.ocrData[page] = await ocrPage(state.pageImages[page].blob);
+      }
 
-  es.addEventListener("error", () => {
-    es.close();
-    showToast("Analysis connection lost", "error");
-    if (detectBtn) {
-      detectBtn.disabled = false;
-      detectBtn.textContent = "Detect Redactions";
+      const imageData = state.pageImages[page].imageData;
+      const ocrLines = state.ocrData[page];
+
+      // Step 1: Detect redaction boxes via WASM
+      const boxes = detectRedactions(imageData);
+
+      // Step 2: For each box, run analysis
+      for (const box of boxes) {
+        const analysis = await analyzeRedaction(imageData, ocrLines, box, apiKey);
+        const id = `p${page}-r${box.x}-${box.y}-${box.w}-${box.h}`;
+
+        state.redactions[id] = {
+          id,
+          x: box.x, y: box.y, w: box.w, h: box.h,
+          page,
+          status: analysis ? "analyzed" : "unanalyzed",
+          analysis: analysis || null,
+          solution: null,
+          preview: null,
+        };
+
+        if (analysis) {
+          state.redactions[id].overrides = {
+            fontId: analysis.font.id,
+            fontSize: analysis.font.size,
+            offsetX: analysis.offset_x || 0,
+            offsetY: analysis.offset_y || 0,
+            gapWidth: analysis.gap.w,
+            leftText: analysis.segments[0]?.text || "",
+            rightText: analysis.segments[1]?.text || "",
+          };
+        }
+      }
+
+      // Re-render if this is the current page
+      if (page === state.currentPage) {
+        renderRedactionList();
+        renderCanvas();
+      }
+    } catch (e) {
+      showToast(`Page ${page}: ${e.message}`, "error");
     }
-  });
+  }
+
+  showToast("Analysis complete");
+  if (detectBtn) {
+    detectBtn.disabled = false;
+    detectBtn.textContent = "Detect Redactions";
+  }
 }
 
-function startOcrSSE() {
-  const es = new EventSource(`/api/doc/${state.docId}/ocr`);
-  showToast("Running OCR...", "info");
+/**
+ * Analyze a single redaction box: find the OCR line, detect font, get boundary text.
+ * @param {ImageData} imageData
+ * @param {Array<{text: string, x: number, y: number, w: number, h: number, chars: Array<{text: string, x: number, y: number, w: number, h: number}>}>} ocrLines
+ * @param {{x: number, y: number, w: number, h: number}} box
+ * @param {string|null} apiKey
+ * @returns {Promise<object|null>}
+ */
+async function analyzeRedaction(imageData, ocrLines, box, apiKey) {
+  // Find the OCR line that best overlaps this box vertically
+  let bestLine = null;
+  let bestOverlap = 0;
 
-  es.onmessage = (e) => {
-    const data = JSON.parse(e.data);
-    if (data.event === "page_ocr_complete") {
-      const statusEl = document.getElementById("ocr-status");
-      if (statusEl) statusEl.textContent = `OCR: page ${data.page} done`;
-    } else if (data.event === "ocr_complete") {
-      es.close();
-      state.ocrReady = true;
-      const statusEl = document.getElementById("ocr-status");
-      if (statusEl) statusEl.textContent = "OCR complete";
-      showToast("OCR complete — ready to detect redactions", "success");
-      if (detectBtn) detectBtn.disabled = false;
-    } else if (data.event === "error") {
-      showToast(`OCR error on page ${data.page}: ${data.message}`, "error");
+  for (const line of ocrLines) {
+    const overlap = Math.max(0,
+      Math.min(box.y + box.h, line.y + line.h) - Math.max(box.y, line.y)
+    );
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      bestLine = line;
     }
-  };
-  es.onerror = () => {
-    es.close();
-    showToast("OCR connection lost", "error");
+  }
+
+  if (!bestLine) return null;
+
+  const line = bestLine;
+
+  // Font detection with redaction masking
+  const redactionBoxes = [box];
+  const candidates = state.fonts.filter(f => f.available).map(f => f.name);
+  const fontMatch = detectFontMasked(imageData, line, redactionBoxes, candidates);
+
+  // Get font ID from name
+  const fontId = (state.fonts.find(f => f.name === fontMatch.fontName) || {}).id || fontMatch.fontName.toLowerCase().replace(/\s+/g, '-');
+
+  // Get boundary text
+  let leftText = '';
+  let rightText = '';
+
+  if (apiKey) {
+    try {
+      const boundary = await identifyBoundaryText(line, box.x, box.w, apiKey);
+      leftText = boundary.leftText;
+      rightText = boundary.rightText;
+    } catch (_e) {
+      // Fallback: use char-based splitting
+      const leftChars = line.chars.filter(c => c.x + c.w / 2 < box.x);
+      const rightChars = line.chars.filter(c => c.x + c.w / 2 > box.x + box.w);
+      leftText = leftChars.map(c => c.text).join('').trim();
+      rightText = rightChars.map(c => c.text).join('').trim();
+    }
+  } else {
+    // No API key — fallback to char splitting
+    const leftChars = line.chars.filter(c => c.x + c.w / 2 < box.x);
+    const rightChars = line.chars.filter(c => c.x + c.w / 2 > box.x + box.w);
+    leftText = leftChars.map(c => c.text).join('').trim();
+    rightText = rightChars.map(c => c.text).join('').trim();
+  }
+
+  // Ensure spaces at redaction boundary (words are always space-separated)
+  if (leftText && !leftText.endsWith(' ')) leftText += ' ';
+  if (rightText && !rightText.startsWith(' ')) rightText = ' ' + rightText;
+
+  // Compute gap from box width
+  const gapW = box.w;
+
+  return {
+    font: { id: fontId, name: fontMatch.fontName, size: fontMatch.fontSize },
+    gap: { x: box.x, y: box.y, w: gapW, h: box.h },
+    line: { text: line.text, x: line.x, y: line.y, w: line.w, h: line.h },
+    segments: [
+      { text: leftText, side: 'left' },
+      { text: rightText, side: 'right' },
+    ],
+    offset_x: 0,
+    offset_y: 0,
   };
 }
 
@@ -312,9 +462,214 @@ if (detectBtn) {
   detectBtn.addEventListener("click", () => {
     detectBtn.disabled = true;
     detectBtn.textContent = "Detecting...";
-    startAnalysisSSE();
+    runAnalysis();
   });
 }
+
+// ── Double-click redaction analysis (uses marquee for context) ──
+
+canvas.addEventListener("dblclick", async (e) => {
+  const rect = rightPanel.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const doc = screenToDoc(sx, sy);
+
+  const page = state.currentPage;
+  if (!state.pageImages?.[page]) {
+    showToast("Page not loaded yet", "error");
+    return;
+  }
+
+  const imageData = state.pageImages[page].imageData;
+
+  // Flood-fill to detect the redaction box at click point
+  const box = spotRedaction(imageData, Math.round(doc.x), Math.round(doc.y));
+  if (!box) {
+    showToast("No redaction found at that spot", "error");
+    return;
+  }
+
+  // If a marquee is active, use it as the crop context for font detection
+  if (marquee.active) {
+    marquee.detectedBox = box;
+    renderCanvas();
+
+    const cropX = Math.round(marquee.x);
+    const cropY = Math.round(marquee.y);
+    const cropW = Math.min(Math.round(marquee.w), imageData.width - cropX);
+    const cropH = Math.min(Math.round(marquee.h), imageData.height - cropY);
+
+    // OCR the marquee crop with the redaction box masked out
+    showToast("Running OCR on selection...", "info");
+    const ocrCrop = cropImageData(imageData, cropX, cropY, cropW, cropH);
+    const relBox = {
+      x: box.x - cropX,
+      y: box.y - cropY,
+      w: box.w,
+      h: box.h,
+    };
+    maskBoxRGBA(ocrCrop, relBox.x, relBox.y, relBox.w, relBox.h);
+
+    // Convert ImageData to Blob — Tesseract.js can't read raw ImageData
+    const ocrCanvas = new OffscreenCanvas(ocrCrop.width, ocrCrop.height);
+    ocrCanvas.getContext('2d').putImageData(ocrCrop, 0, 0);
+    const ocrBlob = await ocrCanvas.convertToBlob({ type: 'image/png' });
+
+    let ocrLines;
+    try {
+      ocrLines = await ocrPage(ocrBlob);
+    } catch (err) {
+      showToast("OCR failed: " + err.message, "error");
+      return;
+    }
+
+    if (ocrLines.length === 0) {
+      showToast("No text detected in selection — try a wider marquee", "warning");
+    }
+
+    // Split OCR chars into left/right of the redaction box (crop-relative coords)
+    let leftText = '';
+    let rightText = '';
+    let bestLine = null;
+    let bestOverlap = 0;
+    for (const line of ocrLines) {
+      const overlap = Math.max(0,
+        Math.min(relBox.y + relBox.h, line.y + line.h) - Math.max(relBox.y, line.y)
+      );
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        bestLine = line;
+      }
+    }
+
+    if (bestLine?.chars) {
+      const leftChars = bestLine.chars.filter(c => c.x + c.w / 2 < relBox.x);
+      const rightChars = bestLine.chars.filter(c => c.x + c.w / 2 > relBox.x + relBox.w);
+      leftText = leftChars.map(c => c.text).join('').trim();
+      rightText = rightChars.map(c => c.text).join('').trim();
+
+      // LLM pass to clean up OCR text (fixes missing spaces, garbled chars)
+      const apiKey = await getSetting('anthropic_api_key');
+      if (apiKey) {
+        try {
+          const boundary = await identifyBoundaryText(bestLine, relBox.x, relBox.w, apiKey);
+          leftText = boundary.leftText;
+          rightText = boundary.rightText;
+        } catch (_e) { /* keep OCR text */ }
+      }
+    }
+
+    // Ensure spaces at redaction boundary (words are always space-separated)
+    if (leftText && !leftText.endsWith(' ')) leftText += ' ';
+    if (rightText && !rightText.startsWith(' ')) rightText = ' ' + rightText;
+
+    // Use first OCR char's y as baseline hint (already crop-relative)
+    const firstChar = bestLine?.chars?.[0];
+    const hint = firstChar
+      ? { x: firstChar.x, y: firstChar.y }
+      : undefined;
+
+    const cropGray = cropToGrayscale(imageData, cropX, cropY, cropW, cropH);
+    const candidates = state.fonts.filter(f => f.available).map(f => f.name);
+    showToast("Detecting font...", "info");
+    const match = detectFontMarquee(cropGray, cropW, cropH, relBox, leftText, rightText, candidates, hint);
+
+    const fontId = (state.fonts.find(f => f.name === match.fontName) || {}).id
+      || match.fontName.toLowerCase().replace(/\s+/g, '-');
+
+    const id = `p${page}-r${box.x}-${box.y}-${box.w}-${box.h}`;
+    // Convert crop-relative offsets to line-relative offsets.
+    // detectFontMarquee returns positions within the marquee crop, but
+    // drawRedactionAnalyzed renders at (line.x + offsetX, line.y + offsetY).
+    // OCR line coords are crop-relative, so add cropX/cropY to get document-absolute.
+    const lineX = bestLine ? bestLine.x + cropX : box.x;
+    const lineY = bestLine ? bestLine.y + cropY : box.y;
+    const offsetX = cropX + match.xOffset - lineX;
+    const offsetY = cropY + match.yOffset - lineY;
+
+    const analysis = {
+      font: { id: fontId, name: match.fontName, size: match.fontSize },
+      gap: { x: box.x, y: box.y, w: box.w, h: box.h },
+      line: bestLine
+        ? { text: bestLine.text, x: bestLine.x + cropX, y: bestLine.y + cropY, w: bestLine.w, h: bestLine.h }
+        : { text: '', x: box.x, y: box.y, w: box.w, h: box.h },
+      segments: [
+        { text: leftText, side: 'left' },
+        { text: rightText, side: 'right' },
+      ],
+      offset_x: offsetX,
+      offset_y: offsetY,
+    };
+
+    state.redactions[id] = {
+      id,
+      x: box.x, y: box.y, w: box.w, h: box.h,
+      page,
+      status: "analyzed",
+      analysis,
+      solution: null,
+      preview: null,
+      overrides: {
+        fontId,
+        fontSize: match.fontSize,
+        offsetX,
+        offsetY,
+        gapWidth: box.w,
+        leftText,
+        rightText,
+      },
+    };
+
+    clearMarquee();
+    renderRedactionList();
+    renderCanvas();
+    activateRedaction(id);
+    showToast(`Font: ${match.fontName} ${match.fontSize.toFixed(1)}px (score: ${match.score.toFixed(3)})`, "success");
+    return;
+  }
+
+  // No marquee — fall back to old analyzeRedaction flow
+  // Run page-level OCR on demand if not already cached
+  if (!state.ocrData?.[page]) {
+    showToast("Running OCR on page...", "info");
+    state.ocrData[page] = await ocrPage(state.pageImages[page].blob);
+  }
+  const ocrLines = state.ocrData[page];
+  const apiKey = await getSetting('anthropic_api_key');
+  const analysis = await analyzeRedaction(imageData, ocrLines, box, apiKey);
+
+  if (!analysis) {
+    showToast("No text found near this redaction", "info");
+  }
+
+  const id = `p${page}-r${box.x}-${box.y}-${box.w}-${box.h}`;
+  const redaction = {
+    id,
+    x: box.x, y: box.y, w: box.w, h: box.h,
+    page,
+    status: analysis ? "analyzed" : "unanalyzed",
+    analysis: analysis || null,
+    solution: null,
+    preview: null,
+  };
+
+  if (analysis) {
+    redaction.overrides = {
+      fontId: analysis.font.id,
+      fontSize: analysis.font.size,
+      offsetX: analysis.offset_x || 0,
+      offsetY: analysis.offset_y || 0,
+      gapWidth: analysis.gap.w,
+      leftText: analysis.segments[0]?.text || "",
+      rightText: analysis.segments[1]?.text || "",
+    };
+  }
+
+  state.redactions[id] = redaction;
+  renderRedactionList();
+  renderCanvas();
+  activateRedaction(id);
+});
 
 // ── Page loading ──
 
@@ -324,51 +679,24 @@ async function loadPage(page) {
   closePopover();
   updatePageControls();
 
-  docImage.src = `/api/doc/${state.docId}/page/${page}/original`;
+  // Render page if not cached
+  if (!state.pageImages[page]) {
+    const result = await renderPage(state.pdfDoc, page);
+    const blobUrl = URL.createObjectURL(result.blob);
+    state.pageImages[page] = { imageData: result.imageData, blob: result.blob, blobUrl };
+  }
 
-  await loadPageData(page);
+  docImage.src = state.pageImages[page].blobUrl;
+
+  // Load redactions from in-memory state
+  loadPageRedactions(page);
 }
 
 /**
- * Fetch page data and populate redaction state. Called both on page
- * navigation and when SSE signals a page analysis is complete.
+ * Re-render redaction list and canvas from in-memory state.
  * @param {number} pageNum
  */
-async function loadPageData(pageNum) {
-  const resp = await fetch(`/api/doc/${state.docId}/page/${pageNum}/data`);
-  const data = await resp.json();
-
-  for (const r of data.redactions) {
-    // Preserve existing solution/preview if the redaction was already loaded
-    const existing = state.redactions[r.id];
-
-    state.redactions[r.id] = {
-      id: r.id,
-      x: r.x,
-      y: r.y,
-      w: r.w,
-      h: r.h,
-      page: pageNum,
-      status: r.analysis ? "analyzed" : "unanalyzed",
-      analysis: r.analysis || null,
-      solution: existing?.solution || null,
-      preview: existing?.preview || null,
-    };
-
-    if (r.analysis) {
-      state.redactions[r.id].overrides = existing?.overrides || {
-        fontId: r.analysis.font.id,
-        fontSize: r.analysis.font.size,
-        offsetX: r.analysis.offset_x || 0,
-        offsetY: r.analysis.offset_y || 0,
-        gapWidth: r.analysis.gap.w,
-        leftText: r.analysis.segments[0]?.text || "",
-        rightText: r.analysis.segments[1]?.text || "",
-      };
-    }
-  }
-
-  // Only re-render if this is the currently viewed page
+function loadPageRedactions(pageNum) {
   if (pageNum === state.currentPage) {
     renderRedactionList();
     renderCanvas();
@@ -524,57 +852,6 @@ canvas.addEventListener("mousedown", (e) => {
   }
 });
 
-canvas.addEventListener("dblclick", async (e) => {
-  const rect = rightPanel.getBoundingClientRect();
-  const sx = e.clientX - rect.left;
-  const sy = e.clientY - rect.top;
-  const doc = screenToDoc(sx, sy);
-
-  const resp = await fetch(`/api/doc/${state.docId}/page/${state.currentPage}/spot`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ x: Math.round(doc.x), y: Math.round(doc.y) }),
-  });
-  if (!resp.ok) {
-    showToast("No redaction found at that spot", "error");
-    return;
-  }
-  const r = await resp.json();
-
-  if (!r.analysis) {
-    showToast(state.ocrReady
-      ? "No text found near this redaction"
-      : "OCR still processing — redaction added without analysis",
-      "info");
-  }
-
-  const redaction = {
-    id: r.id, x: r.x, y: r.y, w: r.w, h: r.h,
-    page: state.currentPage,
-    status: r.analysis ? "analyzed" : "unanalyzed",
-    analysis: r.analysis || null,
-    solution: null,
-    preview: null,
-  };
-
-  if (r.analysis) {
-    redaction.overrides = {
-      fontId: r.analysis.font.id,
-      fontSize: r.analysis.font.size,
-      offsetX: r.analysis.offset_x || 0,
-      offsetY: r.analysis.offset_y || 0,
-      gapWidth: r.analysis.gap.w,
-      leftText: r.analysis.segments[0]?.text || "",
-      rightText: r.analysis.segments[1]?.text || "",
-    };
-  }
-
-  state.redactions[r.id] = redaction;
-  renderRedactionList();
-  renderCanvas();
-  activateRedaction(r.id);
-});
-
 canvas.addEventListener("mousemove", (e) => {
   const rect = rightPanel.getBoundingClientRect();
   const sx = e.clientX - rect.left;
@@ -592,6 +869,8 @@ let modDrag = null;
 canvas.addEventListener("mousedown", (e) => {
   if ((!e.ctrlKey && !e.shiftKey) || e.button !== 0) return;
   const r = state.redactions[state.activeRedaction];
+  // Only handle Ctrl/Shift drag for active redactions with overrides.
+  // When no active redaction, let the event propagate so marquee can handle Shift+drag.
   if (!r?.overrides) return;
 
   modDrag = {
@@ -770,6 +1049,7 @@ setOnPopoverClose(() => {
   }
 });
 initViewport();
+initMarquee();
 initPopover();
 initSolver();
 
@@ -777,3 +1057,20 @@ initSolver();
 initSheetTabs();
 initSheetDrag();
 handleLayoutChange();
+initSettings({
+  onFontAdded(font) {
+    state.fonts.push({ ...font, available: true, source: 'user' });
+    refreshFontSelect();
+  },
+  onFontRemoved(fontId) {
+    state.fonts = state.fonts.filter(f => f.id !== fontId);
+    refreshFontSelect();
+  },
+  onDefaultFontsToggled(disabled) {
+    state.defaultFontsDisabled = disabled;
+    for (const f of state.fonts) {
+      if (f.source !== 'user') f.available = !disabled && f.loaded !== false;
+    }
+    refreshFontSelect();
+  },
+});

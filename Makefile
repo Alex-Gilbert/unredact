@@ -1,4 +1,4 @@
-.PHONY: build build-solver run debug stop restart solver app logs status clean dev kill build-associates build-emails build-word-lists check-api-key
+.PHONY: build build-solver run debug stop restart solver app logs status clean dev kill build-associates build-emails build-word-lists check-api-key build-static serve-static clean-static dev-static deploy
 
 SOLVER_BIN  = solver_rs/target/release/unredact-solver
 SOLVER_PORT ?= 3100
@@ -148,7 +148,7 @@ logs:
 
 # ── Clean ──
 
-clean: stop
+clean: stop clean-static
 	rm -rf $(PID_DIR)
 	cd solver_rs && cargo clean
 
@@ -165,3 +165,20 @@ build-word-lists:
 
 test: solver
 	$(PYTHON) -m pytest tests/ --ignore=tests/test_alignment.py -v
+
+# ── Static Site Build ──
+
+build-static:
+	bash scripts/build-static.sh
+
+serve-static:
+	cd dist && python -m http.server 8000
+
+dev-static:
+	python scripts/dev-server.py 8000
+
+deploy: build-static
+	wrangler pages deploy dist --project-name=unredact
+
+clean-static:
+	rm -rf dist unredact-wasm/pkg

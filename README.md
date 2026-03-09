@@ -4,6 +4,8 @@
 
 Unredact uses computer vision, font-aware constraint solving, and LLM reasoning to figure out what text is hiding under those black bars. Upload a PDF, and it will detect redactions, calculate exactly which strings could fit based on pixel-width constraints, and let you visually verify guesses with a live overlay.
 
+Everything runs in the browser — no server required.
+
 <!-- TODO: Replace with actual screenshots -->
 ![Unredact analyzing a redacted PDF](docs/images/hero.png)
 
@@ -20,76 +22,68 @@ Unredact uses computer vision, font-aware constraint solving, and LLM reasoning 
 
 Unredact combines three techniques:
 
-1. **Computer vision** — OCR extracts visible text with character-level bounding boxes. OpenCV detects black rectangles. A pixel-level font matcher identifies the document's typeface and size.
+1. **Computer vision** — OCR (Tesseract.js) extracts visible text with character-level bounding boxes. A WASM module detects black rectangles and identifies the document's typeface and size via pixel-level font matching.
 
-2. **Constraint solving** — Using the detected font's exact character widths (including kerning pairs), a parallel branch-and-bound solver written in Rust enumerates every string that fits the redaction's pixel width within a configurable tolerance.
+2. **Constraint solving** — Using the detected font's exact character widths (including kerning pairs), a WASM-compiled branch-and-bound solver enumerates every string that fits the redaction's pixel width within a configurable tolerance.
 
 3. **LLM validation** — Claude reads the surrounding text context and scores each candidate for plausibility, then results are ranked by a composite of width fit and contextual score.
 
 ```
-PDF ──→ Rasterize ──→ OCR ──→ Font Detection ──→ Redaction Detection
-                                    │                      │
-                                    ▼                      ▼
-                             Width Tables ──→ Constraint Solver (Rust)
-                                                     │
-                                                     ▼
-                                    Candidates ──→ LLM Validation ──→ Ranked Results
-                                                                          │
-                                                                          ▼
-                                                                  Visual Overlay
+PDF ──→ Rasterize ──→ OCR (Tesseract.js) ──→ Font Detection (WASM)
+                                                      │
+                                                      ▼
+                          Redaction Detection (WASM) + Width Tables
+                                                      │
+                                                      ▼
+                                        Constraint Solver (WASM)
+                                                      │
+                                                      ▼
+                              Candidates ──→ LLM Validation (Claude API)
+                                                      │
+                                                      ▼
+                                               Visual Overlay
 ```
 
 ## Quick start
 
-### Prerequisites
+### Live version
 
-- Python 3.12+
-- Rust toolchain ([rustup.rs](https://rustup.rs))
-- System packages:
-  - **poppler** — PDF rendering (`libpoppler-cpp-dev` on Debian/Ubuntu, `poppler` on Arch/macOS)
-  - **Tesseract** — OCR engine (`tesseract-ocr` on Debian/Ubuntu, `tesseract` on Arch/macOS)
-  - **fontconfig** — Font lookup (`fontconfig` — usually preinstalled on Linux)
-- An [Anthropic API key](https://console.anthropic.com/) for LLM features
+The app is live at **[unredact.live](https://unredact.live)** — no installation needed. You just need a Claude API key for the LLM validation feature.
 
-### Install
+### Run locally
 
 ```bash
 git clone https://github.com/Alex-Gilbert/unredact.git
 cd unredact
 
-# Create Python virtualenv and install dependencies
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
+# Build the static site (requires Rust toolchain for WASM compilation)
+make build-static
 
-# Build the Rust constraint solver
-make build-solver
-```
-
-### Configure
-
-On first run, you'll be prompted for your Anthropic API key, which gets saved to `.env`:
-
-```bash
-make run
-# Enter your Anthropic API key (from console.anthropic.com): sk-ant-...
-```
-
-Or create `.env` manually:
-
-```bash
-echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env
-```
-
-### Run
-
-```bash
-make run
+# Serve locally
+make serve-static
 ```
 
 Open [http://localhost:8000](http://localhost:8000) in your browser.
 
-This starts both the Python web server (port 8000) and the Rust constraint solver (port 3100). Press `Ctrl+C` to stop everything.
+### Prerequisites (for building)
+
+- Rust toolchain with `wasm-pack` ([rustup.rs](https://rustup.rs), then `cargo install wasm-pack`)
+
+### Development
+
+For development with hot-reloading style path mapping:
+
+```bash
+make dev-static
+```
+
+This runs a dev server that maps flat URL paths to the source directories, so you can edit files in `unredact/static/` and see changes immediately.
+
+### Deploy
+
+```bash
+make deploy    # Builds and deploys to Cloudflare Pages
+```
 
 ## Usage guide
 
@@ -121,7 +115,7 @@ Click on a detected redaction (highlighted on the page). A panel opens with anal
 
 ### 5. Validate with AI
 
-Click **Validate** to have Claude score each candidate based on the surrounding text context. Results are re-ranked by a composite score combining width fit and contextual plausibility.
+Click **Validate** to have Claude score each candidate based on the surrounding text context. Results are re-ranked by a composite score combining width fit and contextual plausibility. Requires a Claude API key (entered in settings).
 
 ### 6. Verify visually
 
@@ -129,60 +123,63 @@ Select a result to see it overlaid in green on the original document. If the gre
 
 ## Architecture
 
-Unredact runs as two local services:
+Unredact runs entirely in the browser as a static site:
 
-- **Python server** (FastAPI, port 8000) — Handles PDF processing, OCR, font detection, redaction detection, LLM calls, and serves the web UI
-- **Rust solver** (Axum, port 3100) — Runs the parallel constraint solver, streams results back via SSE
+- **WASM module** (compiled from Rust) — Constraint solver, redaction detection, font scoring, and text alignment
+- **Tesseract.js** — OCR processing
+- **Claude API** — LLM validation (called directly from the browser with your API key)
+- **Vanilla JavaScript** — No build step, ES6 modules, canvas rendering
 
-The frontend is vanilla JavaScript with no build step. It uses canvas for rendering and SSE for real-time result streaming.
+All data (dictionaries, font metrics, name lists) is bundled as static assets. User settings and API keys are stored locally in IndexedDB.
 
 ```
-Browser ◄──── SSE ────► FastAPI (Python)
-                            │
-                            ├── OCR (Tesseract)
-                            ├── Font detection (pixel matching)
-                            ├── Redaction detection (OpenCV)
-                            ├── LLM validation (Claude API)
-                            │
-                            └──── HTTP ────► Constraint Solver (Rust)
+Browser
+  ├── OCR (Tesseract.js)
+  ├── Redaction detection (WASM)
+  ├── Font detection (WASM pixel matching)
+  ├── Constraint solver (WASM)
+  ├── LLM validation ──→ Claude API
+  └── IndexedDB (settings, API key)
 ```
 
-## Development
-
-### Project structure
+## Project structure
 
 ```
 unredact/
-├── unredact/              # Python package
-│   ├── app.py             # FastAPI server
-│   ├── pipeline/          # Processing modules (OCR, fonts, solver, LLM, etc.)
+├── unredact/
 │   ├── static/            # Frontend (HTML, CSS, JS)
+│   │   ├── index.html
+│   │   ├── main.js        # Entry point
+│   │   ├── solver.js      # Constraint solver interface
+│   │   ├── canvas.js      # Document rendering
+│   │   ├── font_detect.js # Font detection
+│   │   ├── ocr.js         # Tesseract.js integration
+│   │   ├── wasm.js        # WASM module loader
+│   │   ├── llm.js         # LLM validation
+│   │   └── ...            # Other modules
 │   └── data/              # Bundled dictionaries and word lists
-├── solver_rs/             # Rust constraint solver
-│   └── src/               # Axum server + DFS solver
-├── tests/                 # Test suite
-├── scripts/               # Data build scripts
-└── Makefile               # Build, run, test automation
+├── unredact-wasm/         # Rust → WASM module source
+├── scripts/
+│   ├── build-static.sh    # Static site build script
+│   └── dev-server.py      # Development server
+├── dist/                  # Built static site output
+└── Makefile
 ```
+
+### Legacy Python server
+
+The `unredact/app.py` FastAPI server and `unredact/pipeline/` modules are the original server-side implementation. All processing has since been moved to run client-side via WASM and JavaScript. The Python code is retained for reference but is no longer needed to run the application.
+
+The legacy server also depends on a separate Rust HTTP solver service (`solver_rs/`), which has been superseded by the WASM solver running directly in the browser.
 
 ### Useful commands
 
 ```bash
-make run              # Start everything (foreground, Ctrl+C to stop)
-make app              # Start in background
-make stop             # Stop background services
-make status           # Check what's running
-make logs             # Tail logs
-make test             # Run test suite
-make debug            # Run with font debug images saved to debug/
-make build-word-lists # Rebuild noun/adjective dictionaries from WordNet
-```
-
-### Running tests
-
-```bash
-# Tests require the Rust solver to be running
-make test
+make build-static     # Build the static site to dist/
+make serve-static     # Serve dist/ on port 8000
+make dev-static       # Dev server with source path mapping
+make deploy           # Build and deploy to Cloudflare Pages
+make clean            # Clean build artifacts
 ```
 
 ## Disclaimer
