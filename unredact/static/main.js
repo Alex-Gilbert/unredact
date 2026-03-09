@@ -1070,6 +1070,9 @@ initSettings({
     state.fonts = state.fonts.filter(f => f.id !== fontId);
     refreshFontSelect();
   },
+  onPersonDbChanged(data) {
+    state.associates = data;
+  },
   onDefaultFontsToggled(disabled) {
     state.defaultFontsDisabled = disabled;
     for (const f of state.fonts) {

@@ -224,6 +224,16 @@
             </label>
             <p class="setting-hint" id="default-fonts-hint">Only use your uploaded fonts for detection and solving.</p>
         </div>
+        <div class="setting-group">
+            <label>Person Database</label>
+            <p class="setting-hint">Upload a JSON file matching the <a href="https://github.com/Alex-Gilbert/unredact#person-database-schema" target="_blank" rel="noopener">person database schema</a> to enable Full Name mode and person matching in results.</p>
+            <div class="font-upload-row">
+                <input type="file" id="person-db-input" accept=".json" hidden>
+                <button id="person-db-upload" class="settings-action-btn">Upload Database</button>
+                <button id="person-db-clear" class="settings-action-btn secondary" hidden>Remove</button>
+            </div>
+            <span id="person-db-status" class="api-key-status"></span>
+        </div>
         <div class="kofi-link">
           <div id="kofi-settings"></div>
         </div>
