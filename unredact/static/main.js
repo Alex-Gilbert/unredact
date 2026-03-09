@@ -18,7 +18,7 @@ import { initOcr, ocrPage, cropImageData, maskBoxRGBA } from './ocr.js';
 import { initWasm, detectRedactions, spotRedaction } from './wasm.js';
 import { detectFontMasked, detectFontMarquee, cropToGrayscale } from './font_detect.js';
 import { identifyBoundaryText } from './llm.js';
-import { getSetting, saveDocument, savePage, getPage, getDocument, listDocuments, deleteDocument } from './db.js';
+import { getSetting } from './db.js';
 import { initMarquee, clearMarquee, marquee } from './marquee.js';
 
 
@@ -174,15 +174,16 @@ async function loadFonts() {
   const data = await resp.json();
 
   state.fonts = [];
+  state.defaultFontsDisabled = false;
   const loadPromises = data.fonts.map(async (f) => {
     const face = new FontFace(f.name, `url(/fonts/${f.file})`);
     try {
       const loaded = await face.load();
       document.fonts.add(loaded);
-      state.fonts.push({ ...f, available: true });
+      state.fonts.push({ ...f, available: true, loaded: true, source: 'default' });
     } catch (e) {
       console.warn(`Failed to load font ${f.name}:`, e);
-      state.fonts.push({ ...f, available: false });
+      state.fonts.push({ ...f, available: false, loaded: false, source: 'default' });
     }
   });
   await Promise.all(loadPromises);
@@ -198,6 +199,15 @@ async function loadFonts() {
       state.fonts.push({ id: uf.fontId, name: uf.name, available: true, source: 'user' });
     } catch (e) {
       console.warn(`Failed to load user font ${uf.name}:`, e);
+    }
+  }
+
+  // Apply "disable default fonts" setting
+  const disabled = await getSetting('defaultFontsDisabled');
+  if (disabled) {
+    state.defaultFontsDisabled = true;
+    for (const f of state.fonts) {
+      if (f.source !== 'user') f.available = false;
     }
   }
 
@@ -226,6 +236,30 @@ async function loadAssociates() {
     state.associates = { names: {}, persons: {}, victim_set: new Set() };
   }
 }
+
+// ── Disclaimer acceptance ──
+
+const disclaimerEl = document.getElementById("disclaimer");
+const disclaimerBtn = document.getElementById("disclaimer-accept");
+const DISCLAIMER_KEY = "unredact-disclaimer-accepted";
+
+function applyDisclaimerState() {
+  if (localStorage.getItem(DISCLAIMER_KEY)) {
+    disclaimerEl.classList.add("accepted");
+    disclaimerBtn.hidden = true;
+    dropZone.classList.remove("disabled");
+    document.querySelectorAll(".doc-resume-btn").forEach(b => b.disabled = false);
+  } else {
+    dropZone.classList.add("disabled");
+  }
+}
+
+disclaimerBtn.addEventListener("click", () => {
+  localStorage.setItem(DISCLAIMER_KEY, "1");
+  applyDisclaimerState();
+});
+
+applyDisclaimerState();
 
 // ── Upload & drag-drop ──
 
@@ -257,11 +291,7 @@ async function uploadFile(file) {
   const buffer = await file.arrayBuffer();
   const { pageCount, doc } = await loadPdf(buffer);
 
-  // Save document with PDF blob for session resume
-  const pdfBlob = new Blob([buffer], { type: 'application/pdf' });
-  const docId = await saveDocument({ name: file.name, pageCount, pdfBlob });
-
-  state.docId = docId;
+  state.docId = crypto.randomUUID();
   state.pageCount = pageCount;
   state.currentPage = 1;
   state.pdfDoc = doc;
@@ -331,12 +361,6 @@ async function runAnalysis() {
           };
         }
       }
-
-      // Persist redactions to IndexedDB
-      const pageRedactions = Object.values(state.redactions)
-        .filter(r => r.page === page)
-        .map(r => ({ id: r.id, x: r.x, y: r.y, w: r.w, h: r.h, status: r.status, analysis: r.analysis, overrides: r.overrides }));
-      await savePage(state.docId, page, { ocrLines: state.ocrData[page], redactions: pageRedactions });
 
       // Re-render if this is the current page
       if (page === state.currentPage) {
@@ -1015,109 +1039,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// ── Document list & session resume ──
-
-function renderDocList(docs) {
-  const list = document.getElementById('doc-list');
-  if (!docs.length) {
-    list.innerHTML = '';
-    return;
-  }
-
-  list.innerHTML = '<h3>Previous Documents</h3>';
-  for (const doc of docs.sort((a, b) => b.createdAt - a.createdAt)) {
-    const div = document.createElement('div');
-    div.className = 'doc-list-item';
-
-    const info = document.createElement('span');
-    info.className = 'doc-info';
-    info.textContent = doc.name;
-
-    const date = document.createElement('span');
-    date.className = 'doc-date';
-    date.textContent = new Date(doc.createdAt).toLocaleDateString();
-
-    const resumeBtn = document.createElement('button');
-    resumeBtn.className = 'doc-resume-btn';
-    resumeBtn.textContent = 'Resume';
-    resumeBtn.addEventListener('click', () => resumeDocument(doc.docId));
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'doc-delete-btn';
-    deleteBtn.textContent = '\u00d7';
-    deleteBtn.title = 'Delete';
-    deleteBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      await deleteDocument(doc.docId);
-      const updated = await listDocuments();
-      renderDocList(updated);
-    });
-
-    div.appendChild(info);
-    div.appendChild(date);
-    div.appendChild(resumeBtn);
-    div.appendChild(deleteBtn);
-    list.appendChild(div);
-  }
-}
-
-async function resumeDocument(docId) {
-  uploadSection.innerHTML = '<p class="loading">Resuming session...</p>';
-
-  const wasmPromise = initWasm();
-  const ocrPromise = initOcr();
-  const fontPromise = loadFonts();
-  const assocPromise = loadAssociates();
-
-  // Load document metadata
-  const doc = await getDocument(docId);
-  state.docId = docId;
-  state.pageCount = doc.pageCount;
-  state.currentPage = 1;
-  state.pageImages = {};
-  state.ocrData = {};
-
-  // Re-load the PDF from saved blob
-  if (doc.pdfBlob) {
-    const buffer = await doc.pdfBlob.arrayBuffer();
-    const { doc: pdfDoc } = await loadPdf(buffer);
-    state.pdfDoc = pdfDoc;
-  }
-
-  await Promise.all([wasmPromise, ocrPromise, fontPromise, assocPromise]);
-
-  // Restore saved page data
-  for (let page = 1; page <= state.pageCount; page++) {
-    const pageData = await getPage(docId, page);
-    if (pageData) {
-      if (pageData.ocrLines) state.ocrData[page] = pageData.ocrLines;
-      if (pageData.redactions) {
-        for (const r of pageData.redactions) {
-          state.redactions[r.id] = { ...r, page, solution: r.solution || null, preview: null };
-        }
-      }
-    }
-  }
-
-  if (detectBtn) detectBtn.disabled = false;
-
-  uploadSection.hidden = true;
-  viewerSection.hidden = false;
-
-  await loadPage(1);
-
-  renderRedactionList();
-  renderCanvas();
-  showToast("Session resumed", "success");
-}
-
-async function init() {
-  const docs = await listDocuments();
-  if (docs.length > 0) {
-    renderDocList(docs);
-  }
-}
-
 // ── Initialize all modules ──
 
 setOnPopoverClose(() => {
@@ -1145,6 +1066,11 @@ initSettings({
     state.fonts = state.fonts.filter(f => f.id !== fontId);
     refreshFontSelect();
   },
+  onDefaultFontsToggled(disabled) {
+    state.defaultFontsDisabled = disabled;
+    for (const f of state.fonts) {
+      if (f.source !== 'user') f.available = !disabled && f.loaded !== false;
+    }
+    refreshFontSelect();
+  },
 });
-
-init();

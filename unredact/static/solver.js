@@ -74,7 +74,7 @@ export async function startSolve() {
   const fontName = state.fonts.find(f => f.id === (o.fontId ?? a.font.id))?.name || a.font.name;
   const fontSize = o.fontSize ?? a.font.size;
   const gapWidth = o.gapWidth ?? a.gap.w;
-  const tolerance = parseFloat(solveTolerance.value);
+  const tolerance = parseFloat(solveTolerance.value) + 0.1;
 
   const leftText = o.leftText ?? (a.segments.length > 0 ? a.segments[0].text : "");
   const rightText = o.rightText ?? (a.segments.length > 1 ? a.segments[1].text : "");
@@ -110,7 +110,7 @@ export async function startSolve() {
       const resp = await fetch('/data/associates.json');
       const data = await resp.json();
       // Extract all multi-word name variants
-      entries = Object.keys(data).filter(k => k.includes(' '));
+      entries = Object.keys(data.names).filter(k => k.includes(' '));
     } else if (mode === 'email') {
       entries = await loadDataFile('emails.txt');
     } else if (mode === 'word') {
@@ -155,7 +155,9 @@ export async function startSolve() {
     solveStatus.textContent = `Measuring ${entries.length} candidates...`;
 
     // Measure widths of the gap portion only
-    const measured = measureWidths(gapEntries, fontName, fontSize, gapLeftCtx, gapRightCtx);
+    const gapMeasured = measureWidths(gapEntries, fontName, fontSize, gapLeftCtx, gapRightCtx);
+    // Re-attach full text for display in results list
+    const measured = gapMeasured.map(([_, w], i) => [entries[i], w]);
 
     solveStatus.textContent = "Solving...";
 

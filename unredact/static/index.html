@@ -15,10 +15,21 @@
 
   <main>
     <section id="upload-section">
-      <div id="doc-list"></div>
       <div id="drop-zone">
         <p>Drop a PDF here or click to upload</p>
         <input type="file" id="file-input" accept=".pdf" hidden>
+      </div>
+
+      <div id="disclaimer">
+        <h3>Disclaimer</h3>
+        <p>Unredact is a <strong>research and entertainment tool</strong>. It is provided as-is for educational and exploratory purposes only. The results produced by this tool are probabilistic guesses &mdash; <strong>nothing it outputs should be treated as verified fact.</strong></p>
+        <p>This tool is <strong>not intended for use in legal proceedings, journalism, law enforcement</strong>, or any context where unverified information could cause harm. <strong>Do not use this tool to circumvent lawful redactions, violate privacy, or break any applicable laws.</strong> You are solely responsible for how you use it.</p>
+        <p>The author makes no claims of accuracy, completeness, or fitness for any particular purpose, and accepts no liability for misuse or for any consequences arising from the use of this tool.</p>
+        <button id="disclaimer-accept">I Understand &amp; Accept</button>
+        <div class="kofi-link">
+          <p>If Unredact has been useful or interesting to you, feel free to buy me a coffee. No obligation &mdash; this project is free and always will be.</p>
+          <div id="kofi-disclaimer"></div>
+        </div>
       </div>
     </section>
 
@@ -117,8 +128,8 @@
               </label>
               <label>
                 Tolerance
-                <input type="range" id="solve-tolerance" min="0" max="5" step="0.5" value="0">
-                <span id="solve-tol-value">0</span>px
+                <input type="range" id="solve-tolerance" min="0" max="5" step="0.5" value="1">
+                <span id="solve-tol-value">1</span>px
               </label>
               <label id="filter-label" hidden>
                 Word filter
@@ -205,12 +216,27 @@
                 <button id="font-upload-btn" class="settings-action-btn">Upload Font</button>
             </div>
             <div id="user-font-list"></div>
+            <label class="default-fonts-toggle" id="default-fonts-toggle-label">
+                <input type="checkbox" id="disable-default-fonts">
+                Use only my fonts
+            </label>
+            <p class="setting-hint" id="default-fonts-hint">Only use your uploaded fonts for detection and solving.</p>
+        </div>
+        <div class="kofi-link">
+          <div id="kofi-settings"></div>
         </div>
       </div>
     </div>
   </div>
 
   <div id="toast-container"></div>
+  <script src="https://ko-fi.com/widgets/widget_2.js"></script>
+  <script>
+    kofiwidget2.init('Support me on Ko-fi', '#42a5f5', 'apgcodes');
+    var kofiHTML = kofiwidget2.getHTML();
+    document.getElementById('kofi-disclaimer').innerHTML = kofiHTML;
+    document.getElementById('kofi-settings').innerHTML = kofiHTML;
+  </script>
   <script type="module" src="/main.js"></script>
 </body>
 </html>
