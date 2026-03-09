@@ -11,3 +11,6 @@ solver_rs/target/
 unredact-wasm/target/
 scripts/.cache/
 debug/
+unredact/data/associates.json
+unredact/data/associate_first_names.txt
+unredact/data/associate_last_names.txt
