@@ -1,15 +1,15 @@
-"""Build the emails.txt word list from multiple Epstein-related data sources.
+"""Build the emails.txt word list from multiple upstream data sources.
 
 Usage:
     python scripts/build_emails.py [--data-dir PATH]
 
 Downloads and merges email addresses from:
-  1. HuggingFace dataset (notesbymuneeb/epstein-emails) — parquet
-  2. Epstein Exposed API (paginated persons endpoint)
+  1. HuggingFace dataset — parquet
+  2. Exposed API (paginated persons endpoint)
   3. rhowardstone extracted_entities_filtered.json
-  4. Hardcoded court-verified addresses
+  4. Manually added addresses
 
-Outputs deduplicated, sorted, one-per-line to unredact/data/emails.txt.
+Outputs deduplicated, sorted, one-per-line to build/data/emails.txt.
 """
 
 import argparse
@@ -19,34 +19,26 @@ import time
 import urllib.request
 from pathlib import Path
 
-OUTPUT_PATH = Path(__file__).parent.parent / "unredact" / "data" / "emails.txt"
+OUTPUT_PATH = Path(__file__).parent.parent / "build" / "data" / "emails.txt"
 
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w{2,}")
 
-COURT_VERIFIED = [
-    "jeevacation@gmail.com",
-    "jeeproject@gmail.com",
-    "jeeproject@hotmail.com",
-    "jeeholidays@gmail.com",
-    "jeeproject@yahoo.com",
-    "jeffreye@mindspring.com",
-    "zorroranch@aol.com",
-    "gmax1@mindspring.com",
-]
+# Add any additional email addresses here
+MANUAL_ADDITIONS: list[str] = []
 
 # ── Source 1: HuggingFace parquet ──────────────────────────────────────────
 
 HUGGINGFACE_URL = (
     "https://huggingface.co/datasets/notesbymuneeb/epstein-emails"
     "/resolve/main/epstein_email_threads.parquet"
-)
+)  # upstream dataset URL
 
 
 def fetch_huggingface(data_dir: Path) -> set[str]:
     """Download the HuggingFace parquet file and extract email addresses."""
     import pandas as pd
 
-    parquet_path = data_dir / "epstein-emails.parquet"
+    parquet_path = data_dir / "emails.parquet"
     if not parquet_path.exists():
         print(f"Downloading {HUGGINGFACE_URL}...")
         urllib.request.urlretrieve(HUGGINGFACE_URL, parquet_path)
@@ -67,26 +59,26 @@ def fetch_huggingface(data_dir: Path) -> set[str]:
     return emails
 
 
-# ── Source 2: Epstein Exposed API ──────────────────────────────────────────
+# ── Source 2: Exposed API ─────────────────────────────────────────────────
 
-EPSTEIN_EXPOSED_API = "https://epsteinexposed.com/api/v1/persons"
+EXPOSED_API = "https://epsteinexposed.com/api/v1/persons"
 
 
-def fetch_epstein_exposed() -> set[str]:
-    """Paginate the Epstein Exposed persons API and extract emails."""
+def fetch_exposed_api() -> set[str]:
+    """Paginate the exposed persons API and extract emails."""
     emails: set[str] = set()
     page = 1
 
     while True:
-        url = f"{EPSTEIN_EXPOSED_API}?per_page=100&page={page}"
-        print(f"  Epstein Exposed API: fetching page {page}...")
+        url = f"{EXPOSED_API}?per_page=100&page={page}"
+        print(f"  Exposed API: fetching page {page}...")
 
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "unredact-build/1.0"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode())
         except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError) as exc:
-            print(f"  Epstein Exposed API: stopping at page {page} ({exc})")
+            print(f"  Exposed API: stopping at page {page} ({exc})")
             break
 
         # Handle both list response and paginated object response
@@ -108,7 +100,7 @@ def fetch_epstein_exposed() -> set[str]:
         page += 1
         time.sleep(1)  # rate limit: 60 req/min
 
-    print(f"  Epstein Exposed: found {len(emails)} unique emails")
+    print(f"  Exposed API: found {len(emails)} unique emails")
     return emails
 
 
@@ -117,7 +109,7 @@ def fetch_epstein_exposed() -> set[str]:
 RHOWARDSTONE_URL = (
     "https://raw.githubusercontent.com/rhowardstone/Epstein-research-data"
     "/main/extracted_entities_filtered.json"
-)
+)  # upstream dataset URL
 
 
 def fetch_rhowardstone(data_dir: Path) -> set[str]:
@@ -155,13 +147,13 @@ def fetch_rhowardstone(data_dir: Path) -> set[str]:
     return emails
 
 
-# ── Source 4: Court-verified ───────────────────────────────────────────────
+# ── Source 4: Manual additions ────────────────────────────────────────────
 
 
-def get_court_verified() -> set[str]:
-    """Return hardcoded court-verified email addresses."""
-    emails = set(COURT_VERIFIED)
-    print(f"  Court-verified: {len(emails)} emails")
+def get_manual_additions() -> set[str]:
+    """Return manually added email addresses."""
+    emails = set(MANUAL_ADDITIONS)
+    print(f"  Manual additions: {len(emails)} emails")
     return emails
 
 
@@ -182,7 +174,7 @@ def merge_and_validate(all_emails: set[str]) -> list[str]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build emails.txt from Epstein data sources")
+    parser = argparse.ArgumentParser(description="Build emails.txt from upstream data sources")
     parser.add_argument("--data-dir", type=Path, default=Path(__file__).parent / ".cache",
                         help="Directory to cache downloaded data files")
     args = parser.parse_args()
@@ -195,17 +187,17 @@ def main():
     print("Source 1: HuggingFace dataset")
     all_emails.update(fetch_huggingface(args.data_dir))
 
-    # Source 2: Epstein Exposed API
-    print("Source 2: Epstein Exposed API")
-    all_emails.update(fetch_epstein_exposed())
+    # Source 2: Exposed API
+    print("Source 2: Exposed API")
+    all_emails.update(fetch_exposed_api())
 
     # Source 3: rhowardstone
     print("Source 3: rhowardstone extracted entities")
     all_emails.update(fetch_rhowardstone(args.data_dir))
 
-    # Source 4: Court-verified
-    print("Source 4: Court-verified addresses")
-    all_emails.update(get_court_verified())
+    # Source 4: Manual additions
+    print("Source 4: Manual additions")
+    all_emails.update(get_manual_additions())
 
     # Merge, validate, deduplicate
     emails = merge_and_validate(all_emails)

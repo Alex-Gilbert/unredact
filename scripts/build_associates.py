@@ -1,10 +1,10 @@
-"""Build the associates.json lookup file from rhowardstone/Epstein-research-data.
+"""Build the associates.json lookup file from a person registry dataset.
 
 Usage:
     python scripts/build_associates.py [--data-dir PATH]
 
 Downloads persons_registry.json and knowledge_graph_relationships.json if not
-present, then processes them into unredact/data/associates.json.
+present, then processes them into build/data/associates.json.
 """
 
 import argparse
@@ -13,7 +13,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-OUTPUT_PATH = Path(__file__).parent.parent / "unredact" / "data" / "associates.json"
+OUTPUT_PATH = Path(__file__).parent.parent / "build" / "data" / "associates.json"
 
 # Common nickname mappings (canonical → [nicknames])
 NICKNAMES = {
@@ -59,25 +59,8 @@ NICKNAMES = {
     "alexandra": ["alex"],
 }
 
-# Tier 2 categories (staff/financial get auto-promoted)
-TIER2_CATEGORIES = {"staff", "financial"}
-
-# Known victims from public court records and reporting (Giuffre v. Maxwell, etc.)
-# Stored as a separate name set — no person details exposed in the UI.
-KNOWN_VICTIMS = {
-    "Virginia Giuffre", "VIRGINIA ROBERTS", "Virginia Roberts",
-    "Courtney Wild",
-    "Sarah Ransome",
-    "Maria Farmer", "Annie Farmer",
-    "Chauntae Davies",
-    "Johanna Sjoberg",
-    "Michelle Licata",
-    "Carolyn Andriano",
-    "Priscilla Doe",
-    "Teresa Helm",
-    "Anouska De Georgiou",
-    "Haley Robson",
-}
+# Categories that get promoted to tier 2
+TIER2_CATEGORIES = {"staff", "financial", "enabler", "perpetrator"}
 
 
 def _compute_tiers(registry: list[dict], relationships: list[dict]) -> dict[str, int]:
@@ -85,30 +68,23 @@ def _compute_tiers(registry: list[dict], relationships: list[dict]) -> dict[str,
 
     Returns: {canonical_name: tier}
     """
-    # Count relationships and check for traveled_with
-    traveled = set()
     rel_counts: dict[str, int] = defaultdict(int)
 
     for rel in relationships:
         src = rel.get("source_name", rel.get("source", ""))
         tgt = rel.get("target_name", rel.get("target", ""))
-        rtype = rel.get("relationship_type", "")
 
         rel_counts[src] += 1
         rel_counts[tgt] += 1
-
-        if rtype == "traveled_with":
-            traveled.add(src)
-            traveled.add(tgt)
 
     tiers = {}
     for person in registry:
         name = person["name"]
         category = person.get("category", "other")
 
-        if name in traveled:
+        if rel_counts.get(name, 0) >= 5:
             tiers[name] = 1
-        elif category in TIER2_CATEGORIES or category in {"enabler", "perpetrator"} or rel_counts.get(name, 0) >= 3:
+        elif category in TIER2_CATEGORIES or rel_counts.get(name, 0) >= 3:
             tiers[name] = 2
         else:
             tiers[name] = 3
@@ -171,42 +147,13 @@ def _generate_lookups_for_name(
                 _add_name_entries(names, f"{nick} {last}", person_id, tier, "nickname_full")
 
 
-def _build_victim_names() -> set[str]:
-    """Build a flat set of lowercased victim name variants for matching.
-
-    No person details — just strings to check against. This keeps victim
-    identities private in the UI (the V badge shows but is not clickable).
-    """
-    victim_names: set[str] = set()
-
-    for full_name in KNOWN_VICTIMS:
-        low = full_name.lower().strip()
-        if len(low) < 2:
-            continue
-        victim_names.add(low)
-
-        parts = low.split()
-        if len(parts) >= 2:
-            first, last = parts[0], parts[-1]
-            victim_names.add(first)
-            victim_names.add(last)
-
-            # Nicknames
-            if first in NICKNAMES:
-                for nick in NICKNAMES[first]:
-                    victim_names.add(nick)
-                    victim_names.add(f"{nick} {last}")
-
-    return victim_names
-
-
 def process_associates(
     registry: list[dict],
     relationships: list[dict],
 ) -> dict:
     """Process raw registry + relationships into the associates lookup format.
 
-    Returns: {"names": {str: [...]}, "persons": {str: {...}}, "victim_names": [str, ...]}
+    Returns: {"names": {str: [...]}, "persons": {str: {...}}}
     """
     tiers = _compute_tiers(registry, relationships)
 
@@ -239,9 +186,7 @@ def process_associates(
         for alias in person.get("aliases", []):
             _generate_lookups_for_name(names, alias, person_id, tier)
 
-    victim_names = sorted(_build_victim_names())
-
-    return {"names": names, "persons": persons, "victim_names": victim_names}
+    return {"names": names, "persons": persons}
 
 
 def extract_name_lists(registry: list[dict]) -> tuple[set[str], set[str]]:
@@ -292,7 +237,7 @@ def extract_name_lists(registry: list[dict]) -> tuple[set[str], set[str]]:
 
 
 def download_data(data_dir: Path) -> tuple[list, list]:
-    """Download the rhowardstone data files if not already present.
+    """Download the upstream data files if not already present.
 
     Returns: (registry, relationships)
     """
@@ -315,7 +260,7 @@ def download_data(data_dir: Path) -> tuple[list, list]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build associates.json from Epstein research data")
+    parser = argparse.ArgumentParser(description="Build associates.json from upstream person registry")
     parser.add_argument("--data-dir", type=Path, default=Path(__file__).parent / ".cache",
                         help="Directory to cache downloaded data files")
     args = parser.parse_args()

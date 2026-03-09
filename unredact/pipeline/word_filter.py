@@ -3,6 +3,7 @@
 from pathlib import Path
 
 DATA_DIR = Path(__file__).parent.parent / "data"
+BUILD_DIR = Path(__file__).parent.parent.parent / "build" / "data"
 
 
 def _load_set(filename: str) -> set[str]:
@@ -43,7 +44,7 @@ def _get_last_names() -> set[str]:
 def _get_emails() -> list[str]:
     global _emails
     if _emails is None:
-        path = DATA_DIR / "emails.txt"
+        path = BUILD_DIR / "emails.txt"
         if path.exists():
             _emails = [line.strip().lower() for line in path.read_text().splitlines() if line.strip()]
         else:
@@ -59,7 +60,7 @@ _associate_variants: list[str] | None = None
 def _get_associate_firsts() -> list[str]:
     global _associate_firsts
     if _associate_firsts is None:
-        path = DATA_DIR / "associate_first_names.txt"
+        path = BUILD_DIR / "associate_first_names.txt"
         if path.exists():
             _associate_firsts = [line.strip() for line in path.read_text().splitlines() if line.strip()]
         else:
@@ -70,7 +71,7 @@ def _get_associate_firsts() -> list[str]:
 def _get_associate_lasts() -> list[str]:
     global _associate_lasts
     if _associate_lasts is None:
-        path = DATA_DIR / "associate_last_names.txt"
+        path = BUILD_DIR / "associate_last_names.txt"
         if path.exists():
             _associate_lasts = [line.strip() for line in path.read_text().splitlines() if line.strip()]
         else:
@@ -83,7 +84,7 @@ def _get_associate_variants() -> list[str]:
     global _associate_variants
     if _associate_variants is None:
         import json
-        path = DATA_DIR / "associates.json"
+        path = BUILD_DIR / "associates.json"
         if path.exists():
             data = json.loads(path.read_text())
             _associate_variants = [k for k in data.get("names", {}).keys() if " " in k]

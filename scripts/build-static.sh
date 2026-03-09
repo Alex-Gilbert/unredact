@@ -19,9 +19,8 @@ cp unredact/static/*.html dist/
 cp unredact/static/*.js dist/
 cp unredact/static/*.css dist/
 
-# Copy data files
+# Copy data files (bundled dictionaries only — person/email data is user-provided)
 cp unredact/data/*.txt dist/data/
-cp unredact/data/*.json dist/data/
 
 # Copy fonts (manifest + WOFF2 bundles)
 cp unredact/static/fonts/manifest.json dist/fonts/

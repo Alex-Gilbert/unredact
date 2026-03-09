@@ -7,7 +7,7 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 @pytest.fixture
 def sample_pdf() -> Path:
-    """Path to the sample Epstein PDF for testing."""
+    """Path to a sample PDF for testing."""
     pdf = Path("/home/alex/Documents/EFTA00554620.pdf")
     if not pdf.exists():
         pytest.skip("Sample PDF not available")

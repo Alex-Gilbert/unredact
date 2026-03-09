@@ -24,7 +24,7 @@ class TestGetEmails:
             wf._emails = None  # reset cache
             emails_file = tmp_path / "emails.txt"
             emails_file.write_text("test@example.com\nfoo@bar.org\n")
-            with patch.object(wf, "DATA_DIR", tmp_path):
+            with patch.object(wf, "BUILD_DIR", tmp_path):
                 result = wf._get_emails()
                 assert "test@example.com" in result
                 assert "foo@bar.org" in result
@@ -40,7 +40,7 @@ class TestGetEmails:
             wf._emails = None
             emails_file = tmp_path / "emails.txt"
             emails_file.write_text("a@b.com\n")
-            with patch.object(wf, "DATA_DIR", tmp_path):
+            with patch.object(wf, "BUILD_DIR", tmp_path):
                 result = wf._get_emails()
                 assert isinstance(result, list)
         finally:
@@ -52,7 +52,7 @@ class TestGetEmails:
         old = wf._emails
         try:
             wf._emails = None
-            with patch.object(wf, "DATA_DIR", tmp_path):
+            with patch.object(wf, "BUILD_DIR", tmp_path):
                 result = wf._get_emails()
                 assert result == []
         finally:

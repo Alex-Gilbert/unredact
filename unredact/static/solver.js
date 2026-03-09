@@ -103,9 +103,16 @@ export async function startSolve() {
     // Load appropriate word list based on mode
     let entries = [];
     if (mode === 'name') {
-      const firsts = await loadDataFile('first_names.txt');
-      const lasts = await loadDataFile('last_names.txt');
-      entries = [...new Set([...firsts, ...lasts])];
+      if (state.associates?.names) {
+        // Use single-word keys from person database (first names, last names, nicknames)
+        entries = Object.keys(state.associates.names).filter(k => !k.includes(' '));
+      } else {
+        // Fall back to generic name lists
+        const firsts = await loadDataFile('first_names.txt');
+        const lasts = await loadDataFile('last_names.txt');
+        entries = [...new Set([...firsts, ...lasts])];
+        solveStatus.textContent = "Using a large generic name list. Consider uploading a person database in Settings for better results.";
+      }
     } else if (mode === 'full_name') {
       if (!state.associates?.names) {
         solveStatus.textContent = "Full Name mode requires a person database. Upload one in Settings.";
