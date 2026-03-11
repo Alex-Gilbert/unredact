@@ -29,19 +29,39 @@ CANDIDATE_FONTS: list[str] = [
 PRIOR_BIAS = 1.15
 
 
+from pathlib import Path
+from functools import lru_cache
+import subprocess
+import platform
+
 @lru_cache(maxsize=32)
 def _find_font_path(font_name: str) -> Path | None:
-    """Find the .ttf file for a font name using fc-match."""
-    import subprocess
+    """Find the .ttf file for a font name."""
 
-    result = subprocess.run(
-        ["fc-match", "--format=%{file}", font_name],
-        capture_output=True, text=True,
-    )
-    if result.returncode == 0 and result.stdout:
-        p = Path(result.stdout.strip())
-        if p.exists():
-            return p
+    # Linux / macOS using fontconfig
+    if platform.system() != "Windows":
+        try:
+            result = subprocess.run(
+                ["fc-match", "--format=%{file}", font_name],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0 and result.stdout:
+                p = Path(result.stdout.strip())
+                if p.exists():
+                    return p
+        except FileNotFoundError:
+            pass
+
+    # Windows fallback
+    fonts_dir = Path(r"C:\Windows\Fonts")
+    name = font_name.lower()
+
+    if fonts_dir.exists():
+        for f in fonts_dir.glob("*.ttf"):
+            if name in f.name.lower():
+                return f
+
     return None
 
 

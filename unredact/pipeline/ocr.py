@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 
-import pytesseract
+import pytesseract 
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 from PIL import Image
 
 
