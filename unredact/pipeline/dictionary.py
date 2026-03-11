@@ -1,4 +1,5 @@
 # unredact/pipeline/dictionary.py
+from __future__ import annotations
 from PIL import ImageFont
 
 from unredact.pipeline.solver import SolveResult
